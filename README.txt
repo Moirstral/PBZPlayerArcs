@@ -1,14 +1,16 @@
-﻿影之刃零 · 弧形血条/杀气条（PBZPlayerArcs）
+影之刃零 · 弧形血条/杀气条（PBZPlayerArcs）
 ================================================
 
-在玩家角色两侧各画一条水墨弧线：默认左边血量、右边杀气。
-另外把药瓶、绝招和暗源的数量平铺显示在屏幕下方（图标 + 数字）。
-只读取玩家自己的数值，不读取敌人，也不修改任何游戏数据。
+在玩家角色两侧各画一条弧形条：默认左边血量、右边杀气。
+另外把药瓶、精纯杀气和暗源的数量平铺显示在屏幕下方（图标 + 数字）。
+只读取玩家数值，不修改任何游戏数据。
 
+本 mod 基于影之刃零 1.0.1 版本制作，兼容 11.4 的最新更新。
+Lua Mod 且只读取玩家数值及游戏基础资产，理论兼容后续任何更新。
 
 安装
 ----
-1. 确认游戏已安装 UE4SS（本 mod 针对影之刃零 1.0.1 版本制作）。
+1. 确认游戏已安装 UE4SS。
 2. 把整个 PBZPlayerArcs 文件夹放到：
    ...\PBZ\platform\steam\ue4ss\Mods\PBZPlayerArcs
    最终应能看到：
@@ -16,7 +18,7 @@
    ...\Mods\PBZPlayerArcs\Scripts\main.lua
    ...\Mods\PBZPlayerArcs\Scripts\settings.ini
    ...\Mods\PBZPlayerArcs\Scripts\preset\preset1.ini
-3. 启动游戏，读取存档、进入可操作状态后弧线才会出现。
+3. 启动游戏，读取存档、进入可操作状态后弧形条才会出现。
    不需要修改 mods.txt，放置 enabled.txt 即可启用。
 
 
@@ -209,4 +211,288 @@ Debug                true 时每 5 秒往日志写一行状态，排查问题用
   Scripts\PBZArcs.log。
 
 
-由 Qoder 生成
+EN：
+====
+Phantom Blade Zero · Arc HP / Sha-Chi Bars (PBZPlayerArcs)
+=====================================================
+
+Draws an arc bar on each side of the player character: HP on the left and Sha-Chi on
+the right by default. It also lays out the potion, Sha-Chi Essence and Dark Source
+counts along the bottom of the screen (icon + number). It only reads player values and
+does not modify any game data.
+
+This mod is built for Phantom Blade Zero 1.0.1 and is compatible with the latest 11.4
+update. It is a Lua mod that only reads player values and the game's base assets, so it
+should in theory stay compatible with any future update.
+
+
+Installation
+------------
+1. Make sure UE4SS is installed.
+2. Put the whole PBZPlayerArcs folder into:
+   ...\PBZ\platform\steam\ue4ss\Mods\PBZPlayerArcs
+   You should end up with:
+   ...\Mods\PBZPlayerArcs\enabled.txt
+   ...\Mods\PBZPlayerArcs\Scripts\main.lua
+   ...\Mods\PBZPlayerArcs\Scripts\settings.ini
+   ...\Mods\PBZPlayerArcs\Scripts\preset\preset1.ini
+3. Start the game. The arc bars appear once you load a save and gain control of the
+   character. You do not need to edit mods.txt; having enabled.txt is enough to
+   enable the mod.
+
+
+Keys
+----
+F2        Open / close the settings menu (changes are saved to settings.ini
+          automatically). To rebind, change MenuKey in settings.ini, for example
+          MenuKey = F8
+F4        Temporarily show / hide both arc bars (also written to settings.ini)
+ESC       While the menu is open, save and close it; while the menu is closed the key
+          still goes to the game (fixed, cannot be rebound)
+LMB       In the menu, hold a slider and drag it left/right; click the toggle buttons
+          and drop-downs. With the menu open, hold anywhere on the icons to move all
+          icons together
+RMB       With the menu open, hold one icon to move only that icon
+MMB       With the menu open, click an icon to return all icons to their default
+          position
+
+
+Menu and config file
+--------------------
+The menu and settings.ini read and write the same file: Scripts\settings.ini.
+Changes made in the menu take effect immediately and are written back about 0.35 s
+later; the file is also saved once when the menu closes. You can also edit the file
+outside the game, and it takes effect after restarting the game. When writing back,
+only the values are replaced, so the Chinese comments and blank lines in the file are
+kept exactly as they are.
+
+In the top-right corner of the menu is the language drop-down: the "语言 / Language"
+label on the left, and the button on the right expands the list of languages. While it
+is open the arrow on the button flips, and it closes after you pick a language or click
+somewhere else.
+All menu text lives in language files under Scripts\lang (zh_cn.ini Chinese, en_us.ini
+English), one "key = displayed text" per line. Edit and save the file, then press F2
+again to see the change in the menu.
+Which languages the drop-down lists is decided by Scripts\lang\languages.ini: one
+language file name per line (without .ini), in the order they appear in the file. To
+add your own language, copy a file and rename it to something like fr_fr.ini, change
+lang.name at the top (that is what the drop-down shows), then add a line fr_fr to
+languages.ini. No code changes needed.
+"All / HP only / Sha-Chi only" is also a drop-down; pick an option from the pop-up
+list.
+The toggle buttons are arranged in two rows: five on the first row (follow character,
+ghost trail, brush tip, potions, ultimate) and four on the second (display timing,
+display scope, HP left / Sha-Chi left, reset to default).
+On the first row, "potions shown / potions hidden" and "ultimate shown / ultimate
+hidden" control the two icon groups respectively.
+
+
+Presets
+-------
+In the top-right corner of the menu, to the left of the language bar, is the preset
+drop-down showing the current preset name; to its right are the two small buttons
+"Save" and "New", and then the language bar.
+
+- Drop-down: picking a preset replaces the whole set of settings with that preset's
+  values; it takes effect immediately and is written back to settings.ini.
+- Save: writes all current settings into the currently selected preset file.
+- New: creates a new preset from the current settings, named in sequence (preset 3,
+  preset 4, ...) and switches to it.
+- Reset to default: restores the values stored in the *current preset*, not the
+  factory defaults. To get back to the factory set, pick "预设 1" in the drop-down and
+  then click reset.
+
+Presets live in the mod's Scripts\preset folder, one file per preset: preset1.ini,
+preset2.ini, ... The numbering must be contiguous (the list stops at the first gap).
+Each file is a complete set of settings in the same format as settings.ini and can be
+edited outside the game. The Preset line in the file is the preset's name: whatever you
+put there is what the menu shows, and the mod never rewrites it. The Preset line in
+settings.ini records the file name of the current preset (for example preset2, without
+.ini); matching is by file name only, so changing the display name will not lose track.
+If no preset exists for that file name, the menu treats it as a configuration that has
+never been saved.
+
+Two presets ship with the mod: preset 1 = default parameters, preset 2 = a set of
+actual values used while the mod was being made.
+
+The key name in the hint at the top of the menu follows MenuKey: set MenuKey to F8 and
+the hint shows F8.
+
+The menu uses the system arrow cursor, which can move anywhere outside the panel.
+
+
+Settings reference (values are based on 1080p and scale with resolution)
+-----------------------------------------------------------------------
+Enabled              Master switch
+Preset               File name of the current preset (without .ini), matching the
+                     presetN.ini in Scripts/preset/
+FollowCharacter      true = follow the character; false = use a fixed screen position
+FollowSmoothing      Follow smoothing, 0 = glued to the character, higher = softer
+FixedAnchorX/Y       Relative screen position used when not following (0-1)
+AnchorHeight         How far to raise the reading above the character position (cm)
+AnchorOffsetX/Y      Overall offset of both arc bars, in 1080p pixels
+
+Radius               Arc radius, default 180 (larger = further from the body)
+Thickness            Stroke thickness, default 16
+ArcSpan              Arc opening angle, default 90 degrees
+Segments             Number of segments, default 64; more is smoother, but costs more
+                     performance
+HpOnLeft             true = HP left, Sha-Chi right; false = Sha-Chi left, HP right
+BrushJitter          Random jitter of the brush strokes, default 0 (cleanest edges);
+                     raising it randomises each stroke for a more hand-drawn look, at
+                     the cost of fine stray hairs along the arc edge
+StrokeOverlap        How many times the segment length each stroke is drawn, default
+                     10; larger overlaps neighbouring strokes for a more continuous
+                     line, smaller makes the joints between segments visible
+
+BarOpacity           Overall opacity of both arc bars
+TrackOpacity         Opacity of the background track (empty slot)
+GhostOpacity         Ghost trail opacity. The trail shows the segment that was just
+                     lost, in a dimmer colour than the real arc, so it is easy to tell
+                     apart from the current value
+GhostSpeed           How fast the ghost trail retracts; higher is faster
+ShowGhost            Whether to show the ghost trail
+ShowTip              Whether to show the brush tip at the end of the arc (on by
+                     default)
+TipScale / TipAngle  Brush tip size and angle
+
+HpColor / QiColor    Main HP / Sha-Chi colour, by default taken from the game HUD
+                     (silver-white / gold)
+TrackColor           Track colour
+WarnColor            Low-level warning colour, red by default
+
+WarnThresholdHp      Low HP threshold, 0.30 = 30%
+WarnThresholdQi      Low Sha-Chi threshold, 0.25 = 25%
+WarnFlashSpeed       Blink speed (times per second)
+WarnFlashAmount      Blink amount, 0 = no blink, 1 = full bright/dim alternation
+
+Visibility           Display timing (same-named drop-down in the menu):
+                     always = always visible
+                     hud = follow the game HUD show/hide (fades out with cutscenes and
+                     menus)
+                     dynamic = dynamic hiding (default): the HP bar and the Sha-Chi
+                     bar are judged separately; a bar that stays full for HideDelay
+                     seconds is hidden, and reappears as soon as its value drops;
+                     while not full it follows the game HUD and hides with it
+                     immediately, without waiting
+HideDelay            Dynamic-hide delay (seconds), default 3.0; 0 = hide immediately
+                     when full
+DisplayMode          Display scope: both = HP and Sha-Chi (default) / hp = HP only /
+                     qi = Sha-Chi only; the left/right position is still set by
+                     HpOnLeft
+
+MedicineHud          true = show potion icons and remaining counts; false = hide
+UltHud               true = show ultimate stacks and Dark Source count; false = hide
+MedicineHudX/Y       Screen position of the potion icons (1080p pixels);
+                     -1 = place them automatically bottom-centre, 152 pixels from the
+                     bottom edge. Dragging the icons while the menu is open writes the
+                     actual position
+UltHudX/Y            Screen position of the ultimate icon group, same rules as above
+Med1OffX/Med1OffY    Offset of a single icon inside its group (pixels), 0 = arrange
+Med2OffX/Med2OffY    automatically in order; right-dragging a single icon writes it,
+Ult1OffX/Ult1OffY    middle-clicking an icon clears it
+Ult2OffX/Ult2OffY
+IconScale            Overall icon size (0.5-3), default 1.0; icons, numbers and the
+                     spacing between them scale together while the bottom edge of the
+                     row stays where it is
+UltChargeBar         true = the Sha-Chi Essence charge fills the ultimate icon
+                     directly (bottom to top); false = hide
+
+ToggleKey / MenuKey  Key names, for example F4, F2, F8; MenuKey defaults to F2, and the
+                     menu hint follows the new name
+Lang                 Menu language, a language file name under Scripts\lang
+                     (for example zh_cn, en_us)
+
+InkMaterial          Brush material path; by default the same ink material as the
+                     game's HP bar, which responds to HpColor/QiColor tinting
+Texture              Fallback stroke texture path, used when the material cannot be
+                     loaded
+TipTexture           Brush tip texture path
+
+Debug                When true, writes one status line to the log every 5 seconds, for
+                     troubleshooting
+
+
+Display logic
+-------------
+- The arc bars follow the character's projected position on screen by default; they
+  hide when the character leaves the screen.
+- If the projection interface is unavailable, the mod falls back to the fixed position
+  from FixedAnchorX/Y.
+- Display timing is decided by Visibility:
+  always = always visible; hud = follow the game HUD show/hide; dynamic = dynamic
+  hiding, where the HP bar and the Sha-Chi bar are timed separately, and a bar that
+  stays full for HideDelay seconds is the only one hidden, coming back as soon as its
+  value drops; while not full they still follow the game HUD, and as soon as the HUD
+  itself hides (out of combat, cutscene) the bars and icons hide with it immediately,
+  without waiting for HideDelay.
+  All three settings hide the bars and icons while the map, settings, inventory or main
+  menu is open, except while editing in the menu.
+- The low-level warning only changes colour and blinking; it does not change the
+  display timing.
+- When a value runs low the bar turns WarnColor and blinks; the thresholds of the two
+  bars are set separately.
+- When a value reaches zero the body of the bar is empty, but with the brush tip
+  (ShowTip) enabled the tip stays at the starting point and keeps blinking, so you can
+  see that the bar has hit bottom.
+
+- Potion icons come straight from the game HUD, so they look exactly like the in-game
+  ones: ordered bottom then top, and with only one equipped only that one is shown;
+  when the count runs out the game hides the number, but 0 is still displayed (the icon
+  greys out), and potions you do not have equipped are not shown.
+- The ultimate group is made of two numbers: on the left the ultimate stacks (purple
+  flame icon), on the right the Dark Source count (red-and-white vortex icon). Both
+  numbers share the "ultimate shown / ultimate hidden" toggle and appear and hide
+  together. At 0 the number still shows 0 and the icon dims; when there is no Dark
+  Source in the game UI (not equipped), that entry is not shown.
+- The Sha-Chi Essence charge fills the ultimate icon itself (an icon-body fill just
+  like the potions, not a separate progress bar): the charged part is shown at normal
+  brightness, the uncharged part keeps the icon's original look, and the fill grows
+  from the bottom of the icon upwards without changing the icon's colour. It shows and
+  hides with the icon and scales with IconScale; if you do not want it, set
+  UltChargeBar to false in settings.ini and the icon is completely unaffected by the
+  charge. The Dark Source has no corresponding charge data, so only the ultimate entry
+  has a fill.
+- The number behind an icon uses the warning colour whenever it is 0 (the same colour
+  as the bar's low warning; change it with WarnColor in settings.ini), and keeps its
+  original light colour while it has a count.
+- Both icon groups sit bottom-centre of the screen by default, 152 pixels from the
+  bottom edge, and their overall size is set by IconScale. With the F2 menu open,
+  holding the left button moves all icons together as one, holding the right button
+  moves only the one under the pointer, and a middle click returns all icons to their
+  default position; on release the position is written back to settings.ini. They are
+  not shown while the map, inventory, settings or main menu is open.
+- Icon visibility follows the display timing: always keeps them visible, hud follows
+  the game HUD; with dynamic hiding the icons are not affected by "hide when full" and
+  simply follow the game HUD.
+- While the F2 menu is open the bars and icons sit above the menu's dark backdrop, so
+  you can still read your own values while moving and resizing them; the panel only
+  comes to the front when the cursor moves into it, and drops back below the bars and
+  icons when the cursor leaves.
+
+
+Known limitations
+-----------------
+- The bars are built from overlapping strokes that cover the seams; too few segments
+  or too small a StrokeOverlap makes the "section by section" edges visible again.
+- The game content is already packaged and no extra textures are made; the mod only
+  reuses the game's existing ink material and tints it.
+- The ultimate icon is a static flame silhouette from the game UI tinted purple, not
+  the in-game particle flame.
+- The icon-body charge fill is clipped to a rectangle, so the line between bright and
+  dim is a straight horizontal one and does not follow the flame's outline.
+- The menu uses the game's cursor position; with a few unusual UI-scale settings you
+  may need to reopen the menu once to recalibrate.
+- Only the single player's own values are supported; enemy and ally values are not
+  shown (compatibility with multiplayer mods is untested).
+
+
+Troubleshooting
+---------------
+- No bars at all: first check that UE4SS itself is injected, then whether
+  "v0.2.0 loaded" appears in Scripts\PBZArcs.log.
+- A log exists but there are no bars: make sure you have loaded a save and are in
+  control of the character.
+- To report a problem: set Debug to true, restart the game, reproduce the issue and
+  provide Scripts\PBZArcs.log.
+
