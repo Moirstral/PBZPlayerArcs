@@ -1,13 +1,15 @@
--- UI text: one ini per language in Scripts/lang, listed by Scripts/lang/languages.ini.
--- UE4SS gives Lua no way to list a directory, so the languages the dropdown offers
--- come from that list rather than from whatever files happen to be on disk. Each
--- file spells its own name in a top lang.name line, so a new language needs no code.
+-- UI 文本：Scripts/lang 下每种语言一个 ini，由 Scripts/lang/languages.ini 列出。
+-- UE4SS 无法让 Lua 列出目录，所以下拉框提供的语言
+-- 来自那份清单，而不是磁盘上恰好存在的文件。每个
+-- 文件都在顶部 lang.name 行里写明自己的名字，因此新增语言无需改代码。
 local Lang = {}
 
 local src = debug.getinfo(1, 'S').source:gsub('^@', ''):gsub('\\', '/')
 local DIR = src:match('^(.*)/[^/]+$') or '.'
 local LANG_DIR = DIR .. '/lang'
-local DEFAULT_CODE = 'zh_cn'
+-- 文化名，与游戏自己使用的完全一致（Culture.ToString()）；文件
+-- 直接就是 <culture>.ini，所以无需查找表就能用上游戏的语言。
+local DEFAULT_CODE = 'zh-Hans'
 local NAME_KEY = 'lang.name'
 
 local cache = {}
@@ -17,7 +19,7 @@ local function readAll(path)
   if not f then return nil end
   local text = f:read('*a')
   f:close()
-  -- Notepad can save a byte order mark, and it would hide the very first key.
+  -- 记事本可能保存了字节顺序标记，而它会藏住第一个键。
   return (text:gsub('^\239\187\191', ''))
 end
 
@@ -32,10 +34,11 @@ local function readTable(path)
   return out
 end
 
--- A language code becomes a file name, so anything that could leave the lang
--- folder is dropped before it is ever used.
+-- 语言代码会变成文件名，所以任何可能跑出 lang 目录的内容
+-- 都会在被使用之前剔除。大小写和连字符保留：该代码就是游戏的
+-- 文化名，写法与游戏拼写完全一致。
 function Lang.normalize(code)
-  local clean = tostring(code or ''):lower():gsub('[^%w_%.]', '')
+  local clean = tostring(code or ''):gsub('[^%w_%.%-]', '')
   if #clean > 24 then clean = clean:sub(1, 24) end
   if clean == '' then clean = DEFAULT_CODE end
   return clean
@@ -45,8 +48,8 @@ local function pathFor(code)
   return LANG_DIR .. '/' .. code .. '.ini'
 end
 
--- Strings of one language, or nil when that file is missing or holds no keys.
--- A failed lookup is cached as false so it is not retried on every refresh.
+-- 某种语言的字符串；该文件缺失或不含任何键时返回 nil。
+-- 失败的查找会缓存为 false，以免每次刷新都重试。
 local function loadRaw(code)
   local cached = cache[code]
   if cached ~= nil then return cached or nil end
@@ -59,8 +62,8 @@ local function loadRaw(code)
   return strings
 end
 
--- The codes languages.ini lists, in file order. Without that list only the default
--- language can be offered.
+-- languages.ini 列出的代码，按文件顺序。没有这份清单时
+-- 只能提供默认语言。
 local function readCodes()
   local codes, seen = {}, {}
   local text = readAll(LANG_DIR .. '/languages.ini')
@@ -85,8 +88,8 @@ function Lang.load(code)
   return loadRaw(code) or loadRaw(DEFAULT_CODE) or {}
 end
 
--- Dropdown rows: every listed code whose file exists, labelled with the name that
--- file spells for itself.
+-- 下拉框的每一行：每个已列出且文件存在的代码，用该文件
+-- 为自己写明的名字作标签。
 function Lang.options()
   local out = {}
   for _, code in ipairs(readCodes()) do
@@ -108,8 +111,8 @@ function Lang.nameFor(code)
   return code
 end
 
--- Called when the menu opens, so an edited or newly added language file is picked
--- up without restarting the game.
+-- 菜单打开时调用，这样编辑过或新增的语言文件
+-- 无需重启游戏就能生效。
 function Lang.reload()
   cache = {}
 end

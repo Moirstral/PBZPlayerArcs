@@ -1,5 +1,5 @@
--- PBZPlayerArcs: segmented UMG ink arcs for player HP and Sha-Chi.
--- Pure Lua. The game is cooked, so we reuse existing ink textures and tint them.
+-- PBZPlayerArcs：为玩家 HP 和杀气绘制分段式 UMG 水墨弧条。
+-- 纯 Lua。游戏已 cooked，所以复用现成的水墨贴图并给它们染色。
 local Config = require('PBZArcsConfig')
 
 local Render = {}
@@ -15,9 +15,9 @@ local CLASS = {
 
 local seq = 0
 local EPS = 0.0015
--- The afterimage trails the fill at GhostOpacity, and the fill's own colour at
--- that alpha is indistinguishable from the fill, so the ghost gets its own,
--- darker colour instead of a lightened copy.
+-- 残影以 GhostOpacity 的透明度跟在填充后面，而填充自身的颜色在这么低的 alpha
+-- 下与填充分不出来，所以残影改用自己更深的一档颜色，
+-- 而不是用一份提亮的副本。
 local GHOST_DARKEN = 0.6
 local function logSafe(fn, message)
   if fn then pcall(fn, message) end
@@ -45,8 +45,8 @@ local function loadAsset(paths)
   return nil, nil
 end
 
--- UMG Image can draw a UI material instead of a plain texture. The material carries
--- the ink-stroke alpha the game itself uses for its bars.
+-- UMG Image 可以不画普通贴图，改为绘制 UI 材质。该材质带有游戏本身
+-- 用来画血条的那份水墨笔触 alpha。
 local function applyBrush(widget, brush)
   if brush == nil then return false end
   if valid(brush.material) then
@@ -70,9 +70,12 @@ local function colorAlpha(colour, alpha)
 end
 
 function Render.new(settings, log)
+  local write = log or function() end
   return setmetatable({
     S = settings,
-    log = log or function() end,
+    -- alert 任何时候都写，log 只在 Debug 打开时写。
+    alert = write,
+    log = function(message) if settings.Debug then write(message) end end,
     root = nil,
     group = nil,
     bars = {},
@@ -178,16 +181,16 @@ function Render:createBar(tree, group, name, side, colour, ghostColour, warnColo
   local radius = math.max(60, tonumber(S.Radius) or 150)
   local span = math.max(30, math.min(180, tonumber(S.ArcSpan) or 110))
   local thickness = math.max(2, tonumber(S.Thickness) or 7)
-  -- The ink brush alpha covers only part of its box; scale the box so the visible
-  -- stroke matches Thickness.
+  -- 水墨笔刷的 alpha 只占它方框的一部分；所以把方框放大，
+  -- 让看得见的笔触与 Thickness 对上。
   local brushScale = valid(self.material) and 2.4 or 1.0
   local arcLength = math.rad(span) * radius
-  -- Each segment repeats the whole brush, whose ink tapers to points at both ends.
-  -- Overlapping many copies hides those points and keeps the outline continuous.
+  -- 每一段都会把整张笔刷重画一遍，而笔刷的水墨在两端收成尖角。
+  -- 多份相互重叠可以盖住这些尖角，让轮廓保持连续。
   local overlap = math.max(1, math.min(24, tonumber(S.StrokeOverlap) or 10))
   local segmentLength = math.max(6, (arcLength / math.max(1, N - 1)) * overlap)
   local left = (side == 'left')
-  -- Both bars fill from the bottom of their arc towards the top.
+  -- 两条弧线都从各自弧线的底部向顶部填充。
   local startAngle = left and (math.rad(180) - math.rad(span) / 2) or (math.rad(span) / 2)
   local endAngle = left and (math.rad(180) + math.rad(span) / 2) or (-math.rad(span) / 2)
 
@@ -235,7 +238,7 @@ function Render:createBar(tree, group, name, side, colour, ghostColour, warnColo
     local jd = (pseudo(i * 7.13 + radius) - 0.5) * 2 * math.max(0, math.min(1, tonumber(S.BrushJitter) or 0))
     local jt = (pseudo(i * 3.71 + span) - 0.5) * 2 * math.max(0, math.min(1, tonumber(S.BrushJitter) or 0))
     local r = radius + jd * 0.9
-    -- Brush strokes thin out towards both ends of the arc.
+    -- 笔触在弧线两端逐渐变细。
     local taper = 0.55 + 0.45 * math.sin(math.pi * t) ^ 0.5
     local geom = {
       x = radius + math.cos(angle) * r,
@@ -325,7 +328,7 @@ function Render:build()
   elseif valid(self.texture) then
     self.log('ink texture: ' .. tostring(self.texturePath))
   else
-    self.log('no ink brush; arcs use solid colour')
+    self.alert('no ink brush; arcs use solid colour')
   end
 
   self.world = nil
@@ -418,14 +421,14 @@ function Render:setMaster(alpha)
   pcall(function() self.root:SetRenderOpacity(alpha) end)
 end
 
--- Per-arc visibility, so dynamic hiding can drop HP and Qi independently.
+-- 逐条弧线分别控制显隐，动态隐藏时可以把 HP 和杀气单独撤下。
 function Render:setBarShown(key, shown)
   if self.barShown == nil then self.barShown = { hp = true, qi = true } end
   self.barShown[key] = shown and true or false
 end
 
--- Scale and position both live in the render transform: unlike a canvas slot
--- SetPosition this does not run the layout pass, which matters at 60 fps.
+-- 缩放和位置都放在 render transform 里：与 canvas slot 的 SetPosition 不同，
+-- 这样做不会跑一遍布局流程，这在 60 fps 下很关键。
 function Render:applyTransform()
   if not valid(self.group) then return end
   local scale = self.uiScale or 1
@@ -460,8 +463,8 @@ end
 
 function Render:updateTip(bar, ratio)
   if not bar.tip then return end
-  -- The tip also stays at an empty bar's start point, so a zeroed bar still
-  -- flashes its warning colour instead of disappearing completely.
+  -- 空条时笔尖也留在起点处，这样一条归零的血条仍会闪一下警示色，
+  -- 而不是彻底消失。
   local visible = self.S.ShowTip and ratio < 0.995
   if not visible then
     if bar.tipVisible then
@@ -481,7 +484,7 @@ function Render:updateTip(bar, ratio)
   local y = radius + math.sin(angle) * radius
   local size = math.max(2, tonumber(self.S.Thickness) or 7) * 2.1 * math.max(0.3, math.min(3, tonumber(self.S.TipScale) or 1))
   local tipAngle = math.deg(angle) + 90 + (tonumber(self.S.TipAngle) or -15)
-  -- The tip only moves when the ratio moves; skip the layout call when idle.
+  -- 笔尖只在比例变化时才移动；空闲时跳过这次布局调用。
   if not bar.tipVisible or math.abs((bar.tipX or -9999) - x) > 0.05
     or math.abs((bar.tipY or -9999) - y) > 0.05 then
     bar.tipX, bar.tipY = x, y
@@ -518,6 +521,9 @@ function Render:updateBar(bar, ratio, ghost, dt)
   local target = (self.barShown[key] ~= false) and 1 or 0
   bar.fade = bar.fade + (target - bar.fade) * math.min(1, dt * 12)
   if math.abs(bar.fade - target) < 0.005 then bar.fade = target end
+  -- 已隐藏、并且淡出时已经画到零：下面任何改动都不会作用于屏幕，
+  -- 所以在重新显示之前直接跳过所有分段和透明度调用。
+  if target == 0 and bar.fade == 0 and bar.painted then return end
 
   local threshold = (bar == self.hpBar) and (tonumber(self.S.WarnThresholdHp) or 0)
     or (tonumber(self.S.WarnThresholdQi) or 0)
@@ -543,13 +549,16 @@ function Render:updateBar(bar, ratio, ghost, dt)
     self:setAlpha(bar.segments[i].fill, visible and alpha or 0)
   end
   if self.S.ShowGhost then
+    bar.ghostShown = true
     for i = 1, N do
       local visible = i <= ghostCount or (i == ghostCount + 1 and ghostFrac > 0.002)
       self:setVisible(bar.segments[i].ghost, visible)
       local alpha = (i == ghostCount + 1) and ghostFrac or 1
       self:setAlpha(bar.segments[i].ghost, visible and alpha or 0)
     end
-  else
+  elseif bar.ghostShown ~= false then
+    -- 残影只隐藏一次；开关关掉之后就没有需要再更新的东西了。
+    bar.ghostShown = false
     for i = 1, N do self:setVisible(bar.segments[i].ghost, false) end
   end
 
@@ -579,6 +588,7 @@ function Render:updateBar(bar, ratio, ghost, dt)
 
   bar.ratio = ratio
   bar.ghostRatio = ghost
+  bar.painted = true
   self:updateTip(bar, ratio)
 end
 
@@ -599,10 +609,17 @@ end
 function Render:update(snapshot, dt)
   if not valid(self.root) then return false end
   dt = math.max(0, math.min(0.2, dt or 0.016))
-  self.time = self.time + dt
   local mode = tostring(self.S.DisplayMode or 'both'):lower()
-  local showHp = mode ~= 'qi'
-  local showQi = mode ~= 'hp'
+  -- "off" 隐藏两条弧线但不碰图标。在计时和逐条计算之前就返回，
+  -- 让一条被关掉的弧线只剩两次带缓存的可见性检查的开销。
+  if mode == 'off' then
+    self:setBarEnabled(self.hpBar, false)
+    self:setBarEnabled(self.qiBar, false)
+    return true
+  end
+  self.time = self.time + dt
+  local showHp = mode == 'both' or mode == 'hp'
+  local showQi = mode == 'both' or mode == 'qi'
   if showHp and snapshot.hp and snapshot.hpMax and snapshot.hpMax > 0 then
     local ratio = snapshot.hp / snapshot.hpMax
     if self.hpBar.ghostRatio == nil then self.hpBar.ghostRatio = ratio end

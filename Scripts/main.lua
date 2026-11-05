@@ -3,7 +3,7 @@
 
   只读游戏数据，不修改玩家状态。
   画法：UMG 自带的笔触贴图沿弧线分段旋转，左右各一条。
-  F2 打开设置菜单，F4 显示 / 隐藏。设置写在同目录 settings.ini。
+  F2 打开设置菜单。设置写在同目录 settings.ini。
 ]]
 
 local Config = require('PBZArcsConfig')
@@ -12,8 +12,13 @@ local Follow = require('PBZArcsFollow')
 local Render = require('PBZArcsRender')
 local Menu = require('PBZArcsMenu')
 local Icons = require('PBZArcsIcons')
+local HudBars = require('PBZArcsHudBars')
 
-local function log(message) Config.log('[main] ' .. tostring(message)) end
+-- 状态轨迹只在 Debug 打开时写；真正的问题走 alert，任何时候都写。
+local debugOn = false
+local function rawLog(message) Config.log('[main] ' .. tostring(message)) end
+local function log(message) if debugOn then rawLog(message) end end
+local function alert(message) rawLog(message) end
 
 local function valid(object)
   if object == nil then return false end
@@ -34,7 +39,7 @@ local function unwrap(value)
 end
 
 ---------------------------------------------------------------------------------------------------
--- Windows / HUD helpers
+-- 窗口 / HUD 辅助函数
 
 local cachedPC = nil
 local function localPC()
@@ -87,8 +92,8 @@ local function widgetChainVisible(widget, skipViewportCheck)
     root = parent
   end
   if not skipViewportCheck then
-    -- Widgets the game builds once and caches (map, inventory, menus) stay marked
-    -- visible while detached from the viewport, so the chain must end in one.
+    -- 游戏一次性构建并缓存的控件（地图、背包、菜单）即使脱离视口后仍标记为
+    -- 可见，所以这条链必须最终落在一个位于视口内的控件上。
     local okIn, inViewport = pcall(function() return root:IsInViewport() end)
     if okIn and inViewport ~= true then return false, 0 end
   end
@@ -130,18 +135,20 @@ local function findHudWidget()
 end
 
 ---------------------------------------------------------------------------------------------------
--- Settings and modules
+-- 设置与模块
 
 Config.initLog()
 local existingIni = io.open(Config.INI, 'r')
 if existingIni then existingIni:close() end
-local S = Config.load()
-if not existingIni then Config.save(S) end
+local S, firstUse = Config.load()
+debugOn = S.Debug == true
+-- 首次运行，或文件里还没有语言项：回写一次，把这个选择保存下来。
+if not existingIni or firstUse then Config.save(S) end
 Config.log('loaded settings (' .. Config.INI .. ')')
 
 local stats = Stats.new()
 local follow = Follow.new(S, log)
-local render = Render.new(S, log)
+local render = Render.new(S, rawLog)
 
 local pendingRebuildAt = nil
 local REBUILD_KEYS = {
@@ -154,6 +161,7 @@ local REBUILD_KEYS = {
 local COLOUR_KEYS = { HpColor = true, QiColor = true, TrackColor = true, WarnColor = true }
 
 local function onChange(key)
+  debugOn = S.Debug == true
   if REBUILD_KEYS[key] then
     pendingRebuildAt = os.clock() + 0.25
   elseif COLOUR_KEYS[key] then
@@ -161,11 +169,12 @@ local function onChange(key)
   end
 end
 
-local menu = Menu.new(S, { log = log, onChange = onChange })
-local icons = Icons.new(S, log)
+local menu = Menu.new(S, { log = log, alert = alert, onChange = onChange })
+local icons = Icons.new(S, rawLog)
+local hudBars = HudBars.new(S, rawLog)
 
 ---------------------------------------------------------------------------------------------------
--- Runtime state
+-- 运行时状态
 
 if PBZARCS_RUNTIME and PBZARCS_RUNTIME.shutdown then
   pcall(PBZARCS_RUNTIME.shutdown)
@@ -181,6 +190,7 @@ local heldSnapshot, heldAt = nil, nil
 local lastStatsWarn = -100
 local lastDebugAt = -100
 local lastIconsError = -100
+local lastBarsError = -100
 local attributesDumped = false
 local hudSeenVisible = false
 local hudHiddenSince = nil
@@ -190,7 +200,7 @@ local hudCacheAt = -1
 local hudCacheVisible, hudCacheFactor = nil, 1
 local traceTicks = 0
 local pending = { toggle = false, click = false, rclick = false, mclick = false,
-  enable = false, close = false }
+  close = false }
 
 cleanupWidgets('PBZArcs_Root_')
 cleanupWidgets('PBZArcs_Menu')
@@ -244,10 +254,9 @@ local function hudVisible()
   return visible, factor
 end
 
--- Full-screen game screens (map, settings, inventory, pause) are drawn above the
--- HUD while the HUD keeps rendering underneath, so the HUD visibility alone does
--- not tell them apart. The hardware cursor flag is a second, independent signal:
--- gameplay hides it, those screens show it.
+-- 全屏游戏界面（地图、设置、背包、暂停）绘制在 HUD 之上，而 HUD 仍在底下
+-- 继续渲染，所以光看 HUD 的可见性区分不开它们。硬件光标标志是第二个、
+-- 独立的信号：游戏过程中光标隐藏，这些界面则会显示光标。
 local UI_SCREEN_CLASSES = { 'WB_MapNew_C', 'W_PBZSettingPanel_C', 'WB_Inventory_C', 'WB_StartMenu_V2_C' }
 local uiProbeAt, uiProbeResult = nil, false
 local function gameUIOpen(now)
@@ -273,30 +282,20 @@ local function gameUIOpen(now)
   return uiProbeResult
 end
 
-local function toggleEnabled()
-  S.Enabled = not S.Enabled
-  Config.save(S)
-  log('Enabled = ' .. tostring(S.Enabled))
-end
-
 ---------------------------------------------------------------------------------------------------
--- Frame
+-- 每帧
 
 local function step(dt)
   if not RT.alive then return true end
   local now = os.clock()
 
-  if pending.enable then
-    pending.enable = false
-    toggleEnabled()
-  end
   if pending.toggle then
     pending.toggle = false
     pcall(function() menu:toggle() end)
   end
   if pending.close then
     pending.close = false
-    -- Only intercept ESC while the menu owns input; otherwise the game keeps it.
+    -- 只在菜单接管输入时拦截 ESC；其余时候把 ESC 留给游戏。
     if menu.open then pcall(function() menu:toggle() end) end
   end
   if pending.click then
@@ -312,11 +311,16 @@ local function step(dt)
   end
   if pending.mclick then
     pending.mclick = false
-    if menu.open then pcall(function() icons:press(menu, 'mmb') end) end
+    if menu.open then
+      -- 读数区域上的中键归图标所有；按在别处则把指针下的
+      -- 滑块重置为该条目的默认值。
+      local ok, handled = pcall(function() return icons:press(menu, 'mmb') end)
+      if not ok or not handled then pcall(function() menu:middleClick() end) end
+    end
   end
 
-  -- While an icon set is being dragged the panel stays under the readouts, so the
-  -- icons never slip behind it.
+  -- 拖动一组图标期间，面板保持压在读数下方，
+  -- 这样图标就不会滑到面板后面。
   pcall(function() menu:poll(dt, icons.dragging ~= nil) end)
   pcall(function() icons:poll(dt) end)
 
@@ -324,11 +328,11 @@ local function step(dt)
     if now >= nextBuildTry then
       nextBuildTry = now + 1.0
       local ok, err = rebuild()
-      if not ok then log('HUD build failed: ' .. tostring(err)) end
+      if not ok then alert('HUD build failed: ' .. tostring(err)) end
     end
   elseif pendingRebuildAt ~= nil and now >= pendingRebuildAt then
     local ok, err = rebuild()
-    if not ok then log('HUD rebuild failed: ' .. tostring(err)) end
+    if not ok then alert('HUD rebuild failed: ' .. tostring(err)) end
   end
 
   local snapshot, statsError = readSnapshot(now)
@@ -432,7 +436,6 @@ local function step(dt)
 
   local iconsOk, iconsErr = pcall(function()
     icons:update(dt, {
-      enabled = S.Enabled,
       menuOpen = menu.open,
       uiOpen = uiOpen,
       -- 图标读数跟随显示设置；dynamic 的「值满隐藏」只作用于弧线。
@@ -447,12 +450,18 @@ local function step(dt)
   end)
   if not iconsOk and now - lastIconsError > 5 then
     lastIconsError = now
-    log('icons update: ' .. tostring(iconsErr))
+    alert('icons update: ' .. tostring(iconsErr))
+  end
+
+  local barsOk, barsErr = pcall(function() hudBars:update(dt, snapshot) end)
+  if not barsOk and now - lastBarsError > 5 then
+    lastBarsError = now
+    alert('hud bars update: ' .. tostring(barsErr))
   end
 
   if renderAlive() then render:setBarShown('hp', hpShown); render:setBarShown('qi', qiShown) end
 
-  local target = (S.Enabled and snapshot ~= nil and anchorX ~= nil and onscreen and visible)
+  local target = (snapshot ~= nil and anchorX ~= nil and onscreen and visible)
     and hudFactor or 0
   master = master + (target - master) * math.min(1, math.max(0, dt) * 12)
   if master < 0.01 and target == 0 then master = 0 end
@@ -513,25 +522,24 @@ local function step(dt)
 end
 
 ---------------------------------------------------------------------------------------------------
--- Keys
+-- 按键
 
 if RegisterKeyBind and Key then
   local function bind(key, flag)
     if key == nil then return end
     local ok, err = pcall(function() RegisterKeyBind(key, function() pending[flag] = true end) end)
-    if not ok then log('keybind ' .. tostring(flag) .. ' failed: ' .. tostring(err)) end
+    if not ok then alert('keybind ' .. tostring(flag) .. ' failed: ' .. tostring(err)) end
   end
   local function bindByName(name, flag)
     local keyName = tostring(name or ''):upper()
     local key = keyName ~= '' and Key[keyName] or nil
     if key == nil then
-      log('keybind ' .. tostring(flag) .. ': unknown key "' .. keyName .. '"')
+      alert('keybind ' .. tostring(flag) .. ': unknown key "' .. keyName .. '"')
       return
     end
     bind(key, flag)
   end
   bindByName(S.MenuKey or 'F2', 'toggle')
-  bindByName(S.ToggleKey or 'F4', 'enable')
   bind(Key.ESCAPE, 'close')
   bind(Key.LEFT_MOUSE_BUTTON, 'click')
   bindByName('RIGHT_MOUSE_BUTTON', 'rclick')
@@ -539,7 +547,7 @@ if RegisterKeyBind and Key then
 end
 
 ---------------------------------------------------------------------------------------------------
--- Loop with watchdog
+-- 主循环与看门狗
 
 function RT.shutdown()
   RT.alive = false
@@ -547,6 +555,7 @@ function RT.shutdown()
   pcall(function() menu:destroy() end)
   pcall(function() render:destroy() end)
   pcall(function() icons:destroy() end)
+  pcall(function() hudBars:destroy() end)
   cleanupWidgets('PBZArcs_Root_')
   cleanupWidgets('PBZArcs_Menu')
   cleanupWidgets('PBZArcs_Icons')
@@ -560,7 +569,7 @@ local function safeStep()
   local dt = lastClock and math.max(0, math.min(0.2, now - lastClock)) or 0.016
   lastClock = now
   local ok, err = pcall(step, dt)
-  if not ok then log('step: ' .. tostring(err)) end
+  if not ok then alert('step: ' .. tostring(err)) end
   return false
 end
 
@@ -588,4 +597,4 @@ else
   startFrameLoop()
 end
 
-log('v' .. Config.VERSION .. ' loaded; ' .. tostring(S.ToggleKey) .. ' toggle, ' .. tostring(S.MenuKey) .. ' menu')
+log('v' .. Config.VERSION .. ' loaded; ' .. tostring(S.MenuKey) .. ' menu')

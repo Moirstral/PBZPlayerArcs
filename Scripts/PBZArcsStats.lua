@@ -1,5 +1,5 @@
--- PBZPlayerArcs: read-only player Health / Sha-Chi values.
--- Mirrors the attribute chain proven by PBZNumericHUD on this build.
+-- PBZPlayerArcs：只读读取玩家的生命 / 杀气数值。
+-- 沿用本版本上 PBZNumericHUD 已经验证过的属性链。
 local Stats = {}
 Stats.__index = Stats
 
@@ -127,15 +127,15 @@ function Stats.new()
 end
 
 ---------------------------------------------------------------------------------------------------
--- Discovery dump (one-shot, Debug only). Read-only: it lists every attribute set,
--- inventory-ish component and item-related widget so unknown fields (medicine
--- charges, pure Sha-Chi, ...) can be identified without guessing.
+-- 发现性转储（一次性，仅 Debug）。只读：列出所有属性集、
+-- 与背包有关的组件以及物品相关控件，这样未知字段（药品数量、
+-- 精纯杀气……）不用靠猜就能定位。
 
 local DUMP_KEYWORDS = {
   'medicine', 'potion', 'pill', 'drug', 'elixir', 'heal', 'bottle', 'flask',
   'item', 'inventory', 'consum', 'equip', 'accessory', 'ultimate', 'pure',
-  -- The game itself uses pinyin in BP data (DisplayYaoShiData, CurrentHupo),
-  -- so the Chinese names must be probed as pinyin too.
+  -- 游戏本身在 BP 数据里就用拼音（DisplayYaoShiData、CurrentHupo），
+  -- 所以中文名也得按拼音一并探测。
   'yao', 'hupo', 'heishi', 'dan',
   'count', 'num', 'charges',
 }
@@ -344,7 +344,7 @@ function Stats:describeAttributes()
   scanObject('playerstate', playerState)
   scanObject('controller', pc)
 
-  -- GameInstance / GameState: inventory and save data usually hang off them.
+  -- GameInstance / GameState：背包和存档数据通常挂在它们身上。
   if valid(gi) then
     out[#out + 1] = 'gi ' .. classNameOf(gi) .. '  ' .. fullNameOf(gi)
     dumpFields(out, gi, '  ', 120)
@@ -361,7 +361,7 @@ function Stats:describeAttributes()
     end
   end
 
-  -- Components on the player objects: a medicine pouch component would live here.
+  -- 玩家对象上的组件：药品袋之类的组件应该就在这里。
   local seenComp, compClasses, compCount = {}, {}, 0
   for _, entry in ipairs({ { 'pawn', pawn }, { 'playerstate', playerState }, { 'controller', pc } }) do
     local comps = componentsOf(entry[2])
@@ -387,7 +387,7 @@ function Stats:describeAttributes()
   table.sort(compList)
   out[#out + 1] = 'sec comps: ' .. compCount .. ' -> ' .. table.concat(compList, ', ')
 
-  -- Subsystems (inventory / item / save managers are usually subsystems).
+  -- 子系统（背包 / 物品 / 存档管理器通常都是子系统）。
   local seenSub, subNames = {}, {}
   for _, base in ipairs({ 'GameInstanceSubsystem', 'WorldSubsystem', 'LocalPlayerSubsystem', 'Subsystem' }) do
     local okSub, subs = pcall(function() return FindAllOf(base) end)
@@ -414,7 +414,7 @@ function Stats:describeAttributes()
   table.sort(subList)
   out[#out + 1] = 'sec subs: ' .. table.concat(subList, ', ')
 
-  -- Save-game objects often keep the consumable counts in plain fields.
+  -- 存档对象常把消耗品数量放在普通字段里。
   local seenSave, saveShown = {}, 0
   for _, base in ipairs({ 'SaveGame', 'SaveGameArchive' }) do
     local okSave, saves = pcall(function() return FindAllOf(base) end)
@@ -435,7 +435,7 @@ function Stats:describeAttributes()
   end
   out[#out + 1] = 'sec saves: ' .. saveShown
 
-  -- On-screen text: the medicine counter is a number drawn by the HUD.
+  -- 屏幕上的文本：药品计数就是 HUD 画出来的一个数字。
   local okT, texts = pcall(function() return FindAllOf('TextBlock') end)
   if okT and type(texts) == 'table' then
     local shown, unreadable = 0, 0
@@ -499,7 +499,7 @@ function Stats:describeAttributes()
     for i = 1, math.min(#hudClasses, 250) do out[#out + 1] = hudClasses[i] end
     out[#out + 1] = 'sec hudwidgets: ' .. #hudClasses .. ' classes, ' .. hudCount .. ' instances'
 
-    -- Field dump for medicine-ish widgets and anything that looks like a HUD gauge.
+    -- 对与药品相关的控件、以及任何看起来像 HUD 仪表的控件做字段转储。
     local seenFull, shown = {}, 0
     for i = 1, #widgets do
       local widget = widgets[i]
@@ -551,7 +551,7 @@ function Stats:read()
   local hp = readAttribute(self._set, self._hp)
   local hpMax = readAttribute(self._set, self._hpMax)
   if type(hp) ~= 'number' or type(hpMax) ~= 'number' or hpMax <= 0 then
-    -- The set can be rebuilt during respawn; retry resolution on the next tick.
+    -- 复活期间这个属性集可能被重建；下一帧再重新解析一次。
     self._set = nil
     return nil, 'Health is unavailable'
   end

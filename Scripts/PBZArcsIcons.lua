@@ -1,6 +1,6 @@
--- PBZPlayerArcs: flat medicine / ultimate readouts mirrored from the live HUD.
--- The game keeps these counts in HUD widgets, not in the attribute set, so the
--- medicine icons come from WB_quickslot_C and the numbers from W_WeaponUI_C.
+-- PBZPlayerArcs：从实时 HUD 镜像出来的扁平化药品 / 绝招数值读数。
+-- 游戏把这些计数放在 HUD 控件里而不是属性集里，所以药品图标
+-- 取自 WB_quickslot_C，数字取自 W_WeaponUI_C。
 local Config = require('PBZArcsConfig')
 
 local Icons = {}
@@ -14,16 +14,20 @@ local CLASS = {
   text = '/Script/UMG.TextBlock',
 }
 
--- These are the pixels IconScale = 1 renders at; the slider grows them together.
+-- 这些是 IconScale = 1 时渲染出的像素值；滑块会让它们一起放大。
 local ICON_H = 42
 local NUM_GAP = 8
 local ENTRY_GAP = 25
-local GROUP_GAP = 56
 local BOTTOM_MARGIN = 152
 local NUM_FONT = 18
 local NUM_LINE = 1.2
--- What the digits are assumed to be built at when Font.Size cannot be read back.
--- 27 is the size the theme uses, so the 18/27 render scale is two thirds of it.
+-- 静态贴图里的画面位于其包围盒中线偏上，而实时瓶身画面偏下，因此静态图标
+-- 要下移，才能与瓶子共用同一条中线。该值取自截图测量，随 IconScale 缩放。
+local STATIC_ART_DROP = 3
+-- 计数上的黑色描边，与进度条数字的处理方式一致。
+local NUM_OUTLINE = 1
+-- 当 Font.Size 读不回来时，假定数字是按这个尺寸构建的。
+-- 27 是主题所用的尺寸，所以 18/27 的渲染比例正好是它的三分之二。
 local NUM_ASSUMED_PX = 27
 local NUM_CHAR_W = 13
 local NUM_MIN_W = 20
@@ -31,10 +35,9 @@ local STILL_TIME = 0.12
 local READ_INTERVAL = 0.10
 local SCAN_INTERVAL = 0.50
 
--- IconScale multiplies these base pixels, so the icons, their numbers and the gaps
--- between them all grow together. NUM_FONT is the height the digits end up drawing
--- at; the text widget itself is resized through its render scale, because that is
--- the only text property UMG repaints on.
+-- IconScale 会乘上这些基础像素值，因此图标、它们的数字以及彼此之间的间隙
+-- 都会一起放大。NUM_FONT 是数字最终绘制出来的高度；文本控件本身则通过它的
+-- 渲染缩放来调整大小，因为那是 UMG 唯一会重绘的文本属性。
 local function px(base, scale) return math.floor(base * scale + 0.5) end
 
 local NUM_COLOUR = { R = 0.93, G = 0.90, B = 0.84, A = 1 }
@@ -43,15 +46,14 @@ local ICON_WHITE = { R = 1, G = 1, B = 1, A = 1 }
 local ULT_TINT = { R = 0.62, G = 0.30, B = 1, A = 1 }
 local ULT_DIM = 0.34
 
--- The 精纯杀气 charge is drawn into the icon itself: the icon keeps its original
--- single tint, and a copy of it at full brightness is clipped to the charged
--- fraction of its own height, so the icon fills from the bottom up.
--- CLIP is FWidgetClipping::ClipToBounds.
+-- 精纯杀气的充能直接画进图标本身：图标保持原有的单一着色，
+-- 再把它的一份全亮副本按其自身高度的充能比例裁剪，
+-- 于是图标从底部向上填充。
+-- CLIP 即 FWidgetClipping::ClipToBounds。
 local CLIP_TO_BOUNDS = 1
 
--- The game draws the ultimate as a Niagara flame and the ammo as a swirl whose
--- fill is a material, so those brushes are not usable. These two textures are
--- the static stand-ins: a flame silhouette tinted purple, and the swirl art.
+-- 游戏把绝招画成 Niagara 火焰、把弹药画成以材质填充的漩涡，所以那些笔刷
+-- 用不了。这两张贴图是静态替代品：一个染成紫色的火焰轮廓，以及漩涡图案。
 local ULT_ART = {
   ultimate = '/Game/PBZContent/UI/Hud/Art/Icon_Hud_JingChun_Fire.Icon_Hud_JingChun_Fire',
   bullet = '/Game/PBZContent/VFX/SceneFX/UI/BattleSystem/Assets/T_UI_ShaChiBullet_001_FG.T_UI_ShaChiBullet_001_FG',
@@ -100,7 +102,7 @@ local function textValue(value)
   return nil
 end
 
--- The count a readout's text carries, or nil when the text holds no digits.
+-- 某个读数文本所带的计数；文本中没有数字时返回 nil。
 local function digitsOf(text)
   if type(text) ~= 'string' then return nil end
   return tonumber(text:match('%d+'))
@@ -113,8 +115,8 @@ local function ownVisible(widget)
   return value ~= 1 and value ~= 2
 end
 
--- A slot can be hidden by its own flag or by one of the overlays the game
--- collapses for an unequipped slot, so the whole short chain has to agree.
+-- 槽位可能被它自己的标志隐藏，也可能被游戏为未装备槽位而折叠的
+-- 某一层覆盖物隐藏，所以整条短链都必须一致。
 local function chainVisible(widget)
   local cur = widget
   for _ = 1, 6 do
@@ -130,9 +132,9 @@ local function chainVisible(widget)
   return true
 end
 
--- Whether the game still draws the icon a readout belongs to: its own image widget
--- when the HUD has one, otherwise the row that holds the digits. Either being up is
--- enough; the digits collapsed with the icon still drawn is how a zero looks.
+-- 游戏是否仍在绘制某读数所属的图标：HUD 有它自己的图像控件时就用那个，
+-- 否则用承载数字的那一行。两者任一存在即可；数字随图标折叠而图标仍在
+-- 绘制，就是零的样子。
 local function iconPresent(num, icon)
   if valid(icon) and chainVisible(icon) then return true end
   if not valid(num) then return false end
@@ -254,9 +256,9 @@ local function hasAnyChild(widget, names)
   return false
 end
 
--- Several instances share the class name: the CDO, a child of the front-end
--- layout that never gets its graphs bound, and the real in-game HUD. Only the
--- last one owns the Icon/Num children, so pick by children first.
+-- 有多个实例共用这个类名：CDO、前端布局里一个图表从未绑定的子控件，
+-- 以及真正的游戏内 HUD。只有最后一个拥有 Icon/Num 子控件，
+-- 所以先按子控件来挑。
 local function findLive(shortName, names)
   local ok, list = pcall(function() return FindAllOf(shortName) end)
   if not ok or type(list) ~= 'table' then return nil end
@@ -285,9 +287,11 @@ local QUICK_CHILDREN = {
 local WEAPON_CHILDREN = { 'PureShachiImage', 'PureShachiNum' }
 
 function Icons.new(settings, log)
+  local write = log or function() end
   return setmetatable({
     S = settings,
-    log = log or function() end,
+    -- log 只在 Debug 打开时写。
+    log = function(message) if settings.Debug then write(message) end end,
     root = nil,
     tree = nil,
     canvas = nil,
@@ -296,6 +300,8 @@ function Icons.new(settings, log)
     quickslot = nil,
     weapon = nil,
     bulletNum = nil,
+    probeDone = false,
+    staticDrop = 0,
     buildAt = 0,
     scanAt = -1,
     readAt = -1,
@@ -352,10 +358,10 @@ function Icons:scale()
   return tonumber(self.S.IconScale) or 1
 end
 
--- UTextBlock reads Font once when its Slate widget is built, and SetRenderScale is
--- the property that repaints, so IconScale grows the numbers through the transform.
--- The scale is measured against the size the widget really built with, so the
--- digits land on NUM_FONT even when the theme's own font is a different size.
+-- UTextBlock 在构建 Slate 控件时只读一次 Font，而 SetRenderScale 才是会
+-- 触发重绘的属性，所以 IconScale 通过变换来放大数字。
+-- 缩放是相对控件实际构建时的尺寸来算的，因此即使主题自己的字体
+-- 尺寸不同，数字也会落在 NUM_FONT 上。
 function Icons:applyTextScale(scale)
   if self.textScale == scale then return end
   self.textScale = scale
@@ -364,9 +370,9 @@ function Icons:applyTextScale(scale)
       local base = entry.fontPx or NUM_ASSUMED_PX
       local k = (NUM_FONT * scale) / base
       pcall(function() entry.text:SetRenderScale({ X = k, Y = k }) end)
-      -- The pivot is the slot's mid-height, so the slot has to be exactly as tall as
-      -- the unscaled glyphs. A taller slot drags them above the icon's mid-line as
-      -- soon as the scale is above 1, which is what made the numbers sit too high.
+      -- 轴心是槽位的中线高度，所以槽位必须与未缩放的
+      -- 字形高度完全一致。槽位若更高，缩放一旦超过 1 就会把数字
+      -- 拖到图标中线之上，这正是数字位置偏高的原因。
       entry.numH = math.floor(base * NUM_LINE + 0.5)
     end
   end
@@ -378,14 +384,27 @@ function Icons:createEntry(name, z, canGrey)
   local text = StaticConstructObject(cls(CLASS.text), tree, FName('PBZArcs_Icons_' .. name .. '_num'))
   if not (valid(image) and valid(text)) then return nil end
   pcall(function() text.Font.Size = NUM_FONT end)
-  -- Reading the size back tells us what the widget really built with. If the read
-  -- fails we assume the theme's own size, which makes the scale below two thirds.
+  -- 把尺寸读回来能告诉我们控件实际是按什么尺寸构建的。若读取
+  -- 失败，就假定是主题自己的尺寸，这会让下面的缩放变成三分之二。
   local okFont, fontPx = pcall(function() return tonumber(text.Font.Size) end)
   if not (okFont and fontPx and fontPx > 0) then fontPx = NUM_ASSUMED_PX end
+  -- 描边存在于字体结构体中，只有通过 SetFont 才会生效。它在控件
+  -- 加入树之前就应用，所以运行时没有开销，而下面的渲染缩放
+  -- 仍然决定数字的绘制尺寸。
+  pcall(function()
+    local font = text.Font
+    local settings = font.OutlineSettings
+    if settings == nil then settings = {} end
+    settings.OutlineSize = NUM_OUTLINE
+    settings.OutlineColor = { R = 0, G = 0, B = 0, A = 1 }
+    font.OutlineSettings = settings
+    text:SetFont(font)
+  end)
   pcall(function() text.Justification = 0 end)
-  -- IconScale is applied as a render scale, so the digits have to grow around the
-  -- row's mid-line: the slot is centred on it and the pivot is its own mid-height.
-  pcall(function() text:SetRenderTransformOrigin({ X = 0, Y = 0.5 }) end)
+  -- IconScale 以渲染缩放的方式应用。轴心是槽位的左中：槽位对齐到
+  -- 整行的中线，而从左边缘放大能在任何尺寸下都把数字留在图标
+  -- 右侧。UMG 默认的居中会在缩放变大时把它们推回图标上方。
+  pcall(function() text:SetRenderTransformPivot({ X = 0, Y = 0.5 }) end)
   pcall(function() text:SetShadowOffset({ X = 1, Y = 1 }) end)
   pcall(function() text:SetShadowColorAndOpacity({ R = 0, G = 0, B = 0, A = 0.85 }) end)
   pcall(function() text:SetColorAndOpacity({ SpecifiedColor = NUM_COLOUR, ColorUseRule = 0 }) end)
@@ -466,9 +485,14 @@ function Icons:build()
     ultimate.staticPath = ULT_ART.ultimate
     ultimate.tint = ULT_TINT
     ultimate.dimAtZero = true
+    -- 在共同尺寸下这幅画面看起来比其他图标更重，所以画得比它们
+    -- 小一些；行布局直接用画面宽度，因此它两侧不会留下
+    -- 空白。
+    ultimate.baseW = 32
+    ultimate.baseH = 32
     self:applyStaticBrush(ultimate)
-    -- Only the 精纯杀气 icon carries a charge fill; the bullet count has no
-    -- progress in the attribute set to drive one.
+    -- 只有精纯杀气图标带充能填充；弹药计数在属性集里
+    -- 没有可驱动的进度。
     ultimate.fill = self:buildFill(ultimate, 'Ult', 3)
     self.ultEntries[#self.ultEntries + 1] = ultimate
   end
@@ -528,10 +552,10 @@ function Icons:applyStaticBrush(entry)
   pcall(function() entry.image:SetColorAndOpacity(entry.tint) end)
 end
 
--- The fill is a copy of the icon clipped to the charged part of its own height. The
--- panel is sized to that part and clips its children to its bounds, so the copy is
--- cut off at the charge line instead of being stretched, and the flame fills from
--- the bottom up over the icon itself.
+-- 填充是图标的一份副本，被裁剪到其自身高度的充能部分。面板被
+-- 调整到该部分的大小，并把子控件裁剪到自己的边界，因此副本是在
+-- 充能线处被切断而不是被拉伸，火焰便在图标本身之上
+-- 从底部向上填充。
 function Icons:buildFill(entry, name, z)
   if not entry.staticPath then return nil end
   local resource = unwrap(StaticFindObject(entry.staticPath))
@@ -558,8 +582,8 @@ function Icons:buildFill(entry, name, z)
     pcall(function() readBack = panel.Clipping end)
   end
   pcall(function() panel:SetVisibility(1) end)
-  -- Whether the clip actually took is only visible in game, so the value written back
-  -- is logged once; if it reads empty the fill shows as a whole bright icon.
+  -- 裁剪是否真的生效只能在游戏里看出来，所以把回读的值
+  -- 记录一次；若读到空值，填充会显示成一整个亮色图标。
   self.log(string.format('icons fill clip wrote=%s read=%s', tostring(wrote), tostring(readBack)))
   return {
     panel = panel, panelSlot = panelSlot,
@@ -605,8 +629,8 @@ local function slotState(icon, num)
     local digits = text:match('%d+')
     if digits then count = tonumber(digits) end
   end
-  -- Own visibility decides "equipped": the game hides the whole slot when the
-  -- medicine type is not equipped, and keeps the icon when the charges run out.
+  -- 自身的可见性决定"已装备"：药品类型未装备时游戏会隐藏整个槽位，
+  -- 而在充能耗尽时保留图标。
   local equipped = iconOn
   if not equipped and numOn and count ~= nil and count > 0 then equipped = true end
   return {
@@ -624,8 +648,8 @@ local EMPTY_STATE = {
   count = nil, text = nil, info = nil,
 }
 
--- One rule for every readout: show whatever the game counted, and when the game
--- hides the count but leaves the icon up the answer is zero.
+-- 所有读数共用一条规则：游戏数出什么就显示什么；当游戏隐藏了计数
+-- 却留下图标时，答案就是零。
 local function resolveCount(text, live, hasIcon)
   local count = (live == true) and digitsOf(text) or nil
   if count ~= nil then
@@ -645,8 +669,8 @@ function Icons:warnColour()
   return self._warnRGB, self._warnHex
 end
 
--- Zero counts take the arcs' warning colour, so turning WarnColor up or down
--- reaches the digits on the next read instead of waiting for the number to move.
+-- 零计数采用弧线的警告色，所以调高或调低 WarnColor 会在下一次
+-- 读取时就作用到数字上，而不必等数字本身变化。
 function Icons:applyTextColour(entry)
   local warnRGB, warnHex = self:warnColour()
   local colour = entry.warn and warnRGB or NUM_COLOUR
@@ -689,9 +713,8 @@ function Icons:applySlot(entry, state)
 end
 
 function Icons:applyValue(entry, text, live, iconOn)
-  -- live is the game's own visibility for that readout, iconOn whether the icon it
-  -- belongs to is still drawn: the swirl is collapsed whenever the ammo is not
-  -- equipped, and a collapsed count with a live icon is a count of zero.
+  -- live 是该读数在游戏里的可见性，iconOn 是它所属的图标是否仍被绘制：
+  -- 弹药未装备时漩涡会被折叠，而计数被折叠、图标仍在，就代表计数为零。
   local count, numText = resolveCount(text, live, iconOn)
   local changed = entry.numText ~= numText
   entry.hasValue = count ~= nil
@@ -702,7 +725,7 @@ function Icons:applyValue(entry, text, live, iconOn)
   entry.showNum = count ~= nil
   entry.debugNum = live == true
   if entry.dimAtZero then
-    -- A count of zero dims the icon; one or more restores it to full brightness.
+    -- 计数为零会让图标变暗；一以上则恢复到全亮。
     entry.iconAlpha = ULT_DIM + (1 - ULT_DIM) * math.min(1, count or 0)
   end
   if changed then
@@ -713,15 +736,52 @@ function Icons:applyValue(entry, text, live, iconOn)
   self:applyTextColour(entry)
 end
 
+-- 对原生武器 HUD 的一次性转储。UMG 自己的控件只能画矩形和
+-- 贴图，所以带柔和 alpha 渐变的星形必须取自已有资源；这里列出
+-- 每个控件以及每个 Image 所用的笔刷，方便复用其中一个。
+function Icons:probeWeapon()
+  if self.probeDone or not valid(self.weapon) then return end
+  self.probeDone = true
+  local tree = unwrap(prop(self.weapon, 'WidgetTree'))
+  local root = valid(tree) and unwrap(prop(tree, 'RootWidget')) or nil
+  if not valid(root) then return end
+  self.log('icons probe: weapon tree')
+  local function walk(node, depth)
+    if depth > 10 then return end
+    local ok, count = pcall(function() return node:GetChildrenCount() end)
+    if not ok or type(count) ~= 'number' then return end
+    for index = 0, count - 1 do
+      local okC, child = pcall(function() return node:GetChildAt(index) end)
+      if okC and valid(child) then
+        local kind = className(child)
+        local label = fullName(child)
+        if kind:find('Image', 1, true) ~= nil then
+          local info = brushInfo(child)
+          if info ~= nil then
+            label = label .. string.format(' brush=%s %sx%s', tostring(info.key),
+              tostring(info.w), tostring(info.h))
+          end
+        end
+        self.log(string.rep('  ', depth) .. '[' .. kind .. '] ' .. label)
+        walk(child, depth + 1)
+      end
+    end
+  end
+  walk(root, 0)
+  self.log('icons probe: end')
+end
+
 function Icons:read()
   local q = self.quickslot
-  if valid(q) then
-    -- BottomMedicineNum first, then TopMedicineNum.
+  if self.S.MedicineHud == false then
+    -- 该组已关闭：在重新开启之前不要动它的控件。
+  elseif valid(q) then
+    -- 先 BottomMedicineNum，再 TopMedicineNum。
     if self.medEntries[1] ~= nil then
       local num = unwrap(prop(q, 'BottomMedicineNum'))
       local state = slotState(unwrap(prop(q, 'Icon')), num)
-      -- The unbound front-end copy carries a menu-icon brush in IconBrush, so
-      -- the property is only a fallback once the slot itself is alive.
+      -- 未绑定的前端副本会在 IconBrush 里带一个菜单图标笔刷，所以
+      -- 该属性只在槽位本身存活时才作为后备。
       if state.info == nil and valid(num) then
         state.info = brushInfoFromStruct(unwrap(prop(q, 'IconBrush')))
       end
@@ -738,14 +798,15 @@ function Icons:read()
   end
 
   local w = self.weapon
-  if #self.ultEntries > 0 then
+  if self.S.UltHud ~= false and #self.ultEntries > 0 then
     if valid(w) then
+      if self.S.Debug then self:probeWeapon() end
       local pureNum = unwrap(prop(w, 'PureShachiNum'))
       if self.ultEntries[1] then
         self:applyValue(self.ultEntries[1], textValue(prop(pureNum, 'Text')),
           chainVisible(pureNum), iconPresent(pureNum, unwrap(prop(w, 'PureShachiImage'))))
       end
-      -- BulletNum sits deeper in the tree than the other named widgets.
+      -- BulletNum 在树中比其它具名控件更深。
       if not valid(self.bulletNum) then
         self.bulletNum = unwrap(prop(w, 'BulletNum')) or self:childNamed(w, 'BulletNum')
       end
@@ -794,13 +855,16 @@ function Icons:computeLayout()
   local charW = px(NUM_CHAR_W, sc)
   local minNumW = px(NUM_MIN_W, sc)
   self.rowH, self.numGap = rowH, numGap
+  self.staticDrop = px(STATIC_ART_DROP, sc)
 
-  -- Static icons only get a size from the layout; the medicine brushes keep the
-  -- aspect ratio read from the live HUD widget.
+  -- 静态图标只由布局给定尺寸；药品笔刷则保留从实时 HUD 控件上
+  -- 读到的长宽比。
   for _, list in ipairs({ self.medEntries, self.ultEntries }) do
     for _, entry in ipairs(list) do
       entry.iconH = px(entry.baseH, sc)
-      if entry.staticPath ~= nil then entry.iconW = px(entry.baseW, sc) end
+      if entry.staticPath ~= nil then
+        entry.iconW = px(entry.baseW, sc)
+      end
     end
   end
 
@@ -814,7 +878,7 @@ function Icons:computeLayout()
       entry.offset = x
       local width = entry.iconW
       if entry.numW > 0 then
-        width = width + (entry.iconW > 0 and numGap or 0) + entry.numW
+        width = width + (width > 0 and numGap or 0) + entry.numW
       end
       entry.width = width
       x = x + width + entryGap
@@ -838,7 +902,7 @@ function Icons:computeLayout()
       entry.offset = ux
       local width = entry.iconW
       if entry.numW > 0 then
-        width = width + (entry.iconW > 0 and numGap or 0) + entry.numW
+        width = width + (width > 0 and numGap or 0) + entry.numW
       end
       entry.width = width
       ux = ux + width + entryGap
@@ -855,14 +919,14 @@ function Icons:computeLayout()
   local ultAutoX = (tonumber(S.UltHudX) or -1) < 0
   local medAutoY = (tonumber(S.MedicineHudY) or -1) < 0
   local ultAutoY = (tonumber(S.UltHudY) or -1) < 0
-  -- The margin is a screen distance, not part of the icon row: a bigger IconScale
-  -- grows the row upwards and keeps its bottom edge on the same line.
+  -- 边距是屏幕距离，不属于图标行本身：IconScale 变大会让整行
+  -- 向上生长，而底边保持在同一线上。
   local yDefault = math.max(10, vh - BOTTOM_MARGIN - rowH)
 
   if medVisible and ultVisible and medAutoX and ultAutoX then
-    local total = medW + px(GROUP_GAP, sc) + ultW
+    local total = medW + entryGap + ultW
     self.medX = math.floor(vw / 2 - total / 2 + 0.5)
-    self.ultX = self.medX + medW + px(GROUP_GAP, sc)
+    self.ultX = self.medX + medW + entryGap
   else
     self.medX = medAutoX and math.floor(vw / 2 - medW / 2 + 0.5) or (tonumber(S.MedicineHudX) or 0)
     self.ultX = ultAutoX and math.floor(vw / 2 - ultW / 2 + 0.5) or (tonumber(S.UltHudX) or 0)
@@ -880,10 +944,15 @@ function Icons:entryOff(entry)
     math.floor(tonumber(self.S[id .. 'OffY']) or 0)
 end
 
--- The panel's rect is the bottom slice of the icon, so the copy inside it is offset
--- up by exactly what the slice left out and lines up with the icon underneath; the
--- clip cuts the rest. The copy stays at full brightness, so the charged part reads
--- as the plain tinted icon and the rest keeps the game's own dimming.
+function Icons:artTop(entry, y)
+  local drop = entry.staticPath ~= nil and (self.staticDrop or 0) or 0
+  return y + (self.rowH - entry.iconH) / 2 + drop
+end
+
+-- 面板的矩形是图标的底部切片，所以里面的副本要向上偏移
+-- 恰好是切片略去的高度，从而与下面的图标对齐；其余部分由
+-- 裁剪切掉。副本保持全亮，于是充能部分看起来就是普通着色
+-- 的图标，其余部分保留游戏自身的变暗效果。
 function Icons:placeFill(entry, x, y)
   local fill = entry.fill
   if fill == nil then return end
@@ -900,7 +969,8 @@ function Icons:placeFill(entry, x, y)
     return
   end
   local w = math.floor(entry.iconW)
-  local iconY = math.floor(y + (self.rowH - entry.iconH) / 2)
+  local artX = math.floor(x)
+  local iconY = math.floor(self:artTop(entry, y))
   local panelY = iconY + h - fillH
   local innerY = iconY - panelY
   if fill.shown ~= true then
@@ -908,9 +978,9 @@ function Icons:placeFill(entry, x, y)
     pcall(function() fill.panel:SetVisibility(0) end)
     fill.x, fill.y, fill.w, fill.h, fill.innerY = nil, nil, nil, nil, nil
   end
-  if fill.x ~= x or fill.y ~= panelY or fill.w ~= w or fill.h ~= fillH then
-    fill.x, fill.y, fill.w, fill.h = x, panelY, w, fillH
-    pcall(function() fill.panelSlot:SetPosition({ X = x, Y = panelY }) end)
+  if fill.x ~= artX or fill.y ~= panelY or fill.w ~= w or fill.h ~= fillH then
+    fill.x, fill.y, fill.w, fill.h = artX, panelY, w, fillH
+    pcall(function() fill.panelSlot:SetPosition({ X = artX, Y = panelY }) end)
     pcall(function() fill.panelSlot:SetSize({ X = w, Y = fillH }) end)
     pcall(function() fill.iconSlot:SetSize({ X = w, Y = h }) end)
     fill.innerY = nil
@@ -936,11 +1006,13 @@ function Icons:placeEntry(entry, gx, gy)
   local x = gx + entry.offset + ox
   local y = gy + oy
   local rowH = self.rowH
+  local artX = x
   if entry.iconW > 0 then
     local h = entry.iconH
-    local iconY = y + (rowH - h) / 2
-    if entry.lastPx ~= x or entry.lastPy ~= y or entry.lastW ~= entry.iconW or entry.lastH ~= h then
-      pcall(function() entry.imageSlot:SetPosition({ X = x, Y = iconY }) end)
+    local iconY = self:artTop(entry, y)
+    if entry.lastPx ~= x or entry.lastPy ~= y or entry.lastW ~= entry.iconW
+      or entry.lastH ~= h then
+      pcall(function() entry.imageSlot:SetPosition({ X = artX, Y = iconY }) end)
       pcall(function() entry.imageSlot:SetSize({ X = entry.iconW, Y = h }) end)
       entry.lastW = entry.iconW
       entry.lastH = h
@@ -954,8 +1026,8 @@ function Icons:placeEntry(entry, gx, gy)
     pcall(function() entry.image:SetVisibility(1) end)
   end
   if entry.numW > 0 and entry.showNum then
-    -- entry.numH stays in unscaled glyph pixels: the render pivot is the slot's
-    -- mid-height, so centring the slot on the row centres the digits on the icon.
+    -- entry.numH 保持未缩放的字形像素：渲染轴心是槽位的中线
+    -- 高度，所以把槽位在行上居中就能让数字在图标上居中。
     local numH = entry.numH
     local tx = x + (entry.iconW > 0 and (entry.iconW + self.numGap) or 0)
     pcall(function() entry.textSlot:SetPosition({ X = tx, Y = y + (rowH - numH) / 2 }) end)
@@ -985,8 +1057,8 @@ function Icons:setShown(shown, opacity)
   if self.shownValue == shown and self.shownOpacity == opacity then return end
   self.shownValue, self.shownOpacity = shown, opacity
   if valid(self.root) then
-    -- Self-hit-test-invisible: the readouts never intercept the mouse, the
-    -- module does its own cursor hit testing while the menu is open.
+    -- 自身不参与命中测试：读数永不拦截鼠标，
+    -- 菜单打开时由模块自己做光标命中测试。
     pcall(function() self.root:SetVisibility(shown and 4 or 1) end)
     pcall(function() self.root:SetRenderOpacity(opacity) end)
   end
@@ -994,9 +1066,17 @@ end
 
 function Icons:update(dt, ctx)
   ctx = ctx or {}
+  local now = os.clock()
+  -- 两组读数都关闭：不构建、不读取、不布局也不绘制。根控件隐藏
+  -- 一次，之后每一帧都在做任何工作之前返回。
+  if self.S.MedicineHud == false and self.S.UltHud == false then
+    if self.dragging ~= nil then self:endDrag() end
+    self.medVisible, self.ultVisible = false, false
+    if valid(self.root) then self:setShown(false, 1) end
+    return
+  end
   -- 精纯杀气的充能比例由 main.lua 从属性里读好交进来；nil 表示读不到，充能条不出现。
   self.ultRatio = tonumber(ctx.ultRatio)
-  local now = os.clock()
   if not valid(self.root) then
     if now >= self.buildAt then
       self.buildAt = now + 1.0
@@ -1018,11 +1098,11 @@ function Icons:update(dt, ctx)
 
   self:computeLayout()
   local any = self.medVisible or self.ultVisible
-  -- The readouts follow the arcs' display setting; the full-value hide of dynamic
-  -- belongs to the bars, so here dynamic behaves like hud. ctx.hudFade carries the
-  -- HUD's own opacity so a fading HUD takes the readouts along instead of leaving
-  -- them lit until the HUD is reported fully gone.
-  local shown = any and (ctx.menuOpen or (ctx.enabled and not ctx.uiOpen and ctx.hudShown))
+  -- 读数跟随弧线的显示设置；dynamic 的满值隐藏属于进度条，
+  -- 所以这里 dynamic 的行为与 hud 一致。ctx.hudFade 携带 HUD 自身的
+  -- 透明度，使渐隐的 HUD 会带着读数一起淡出，而不是让它们
+  -- 一直亮着直到 HUD 被报告完全消失。
+  local shown = any and (ctx.menuOpen or (not ctx.uiOpen and ctx.hudShown))
   self:setShown(shown, tonumber(ctx.hudFade) or 1)
   self:applyPositions()
 end
@@ -1051,7 +1131,7 @@ function Icons:groupEntries(group)
   return (group == 'med') and self.medEntries or self.ultEntries
 end
 
--- Keep a group inside the screen and write its position back to the settings.
+-- 让某个组保持在屏幕内，并把它的位置写回设置。
 function Icons:setGroupAt(group, x, y)
   local vw, vh = self:viewport()
   local width = (group == 'med') and self.medW or self.ultW
@@ -1066,7 +1146,7 @@ function Icons:setGroupAt(group, x, y)
   end
 end
 
--- Returns the group, the entry and the entry's top-left corner under the cursor.
+-- 返回组、条目，以及该条目在光标下的左上角。
 function Icons:hitAt(x, y)
   local sc = self:scale()
   local padX, padY = px(4, sc), px(7, sc)
@@ -1091,8 +1171,8 @@ function Icons:hitAt(x, y)
   return nil
 end
 
--- Middle button: every icon goes back to the automatic layout and each one loses
--- its hand-placed shift.
+-- 中键：每个图标都回到自动布局，并失去各自
+-- 手动摆放的偏移。
 function Icons:resetSet()
   for _, group in ipairs({ 'med', 'ult' }) do
     local keys = GROUP_KEYS[group]
@@ -1110,14 +1190,14 @@ function Icons:resetSet()
   self.log('icons set reset')
 end
 
--- Left button drags every icon as one set, right button drags the single icon under
--- the cursor, middle button resets the whole set.
+-- 左键把每个图标当作一整组拖动，右键拖动光标下的单个图标，
+-- 中键重置整组。
 function Icons:press(menu, button)
   if not valid(self.root) or not self.shownValue then return false end
   local x, y = mousePosition()
   if x == nil or y == nil then return false end
   if menu and menu.hitPanel and menu:hitPanel(x, y) then return false end
-  -- A press edge always follows a release, so whatever was held is finished.
+  -- 一次按下之前必定有一次松开，所以按着的东西先结束掉。
   if self.dragging ~= nil then self:endDrag() end
   local group, entry, ex, ey = self:hitAt(x, y)
   if group == nil then return false end
@@ -1184,7 +1264,7 @@ function Icons:poll(dt)
     return
   end
   if not moved and held ~= true then
-    -- Only fall back to the still cursor once the hold probe has made up its mind.
+    -- 只有在按住探测有了结论之后，才回退到静止光标判断。
     if held == nil and drag.hold.reliable ~= nil then
       self.still = self.still + (tonumber(dt) or 0.016)
       if self.still > STILL_TIME then self:endDrag() end

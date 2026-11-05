@@ -1,16 +1,16 @@
--- PBZPlayerArcs: defaults, settings.ini IO and colour helpers.
+-- PBZPlayerArcs：默认值、settings.ini 读写与颜色辅助函数。
 local Config = {}
 
 local src = debug.getinfo(1, 'S').source:gsub('^@', ''):gsub('\\', '/')
 Config.DIR = src:match('^(.*)/[^/]+$') or '.'
 Config.INI = Config.DIR .. '/settings.ini'
 Config.LOG = Config.DIR .. '/PBZArcs.log'
-Config.VERSION = '0.2.0'
+Config.VERSION = '0.3.0'
 
--- Presets live in the Scripts/preset/ folder, one full settings file per preset:
--- preset1.ini, preset2.ini ... Each keeps its own display name in its Preset line,
--- while settings.ini's Preset holds the preset file's name without its extension,
--- so renaming the display name never breaks which preset is currently in use.
+-- 预设存放在 Scripts/preset/ 文件夹里，每个预设一个完整的设置文件：
+-- preset1.ini、preset2.ini……每个文件在各自的 Preset 行里保存自己的显示名，
+-- 而 settings.ini 的 Preset 保存的是预设文件名（不含扩展名），
+-- 因此重命名显示名永远不会破坏「当前正在用哪个预设」的对应关系。
 Config.PRESET_DIR = Config.DIR .. '/preset'
 
 function Config.presetKey(index)
@@ -22,21 +22,19 @@ function Config.presetPath(index)
 end
 
 local DEFAULTS = {
-  Enabled = true,
-
-  -- File name (no extension) of the preset in preset/ that the current values came from
+  -- 当前数值来源的那个 preset/ 里的预设的文件名（不含扩展名）
   Preset = 'preset1',
 
-  -- Follow
+  -- 跟随
   FollowCharacter = true,
-  FollowSmoothing = 0.10,   -- seconds; 0 = snap
-  FixedAnchorX = 0.50,      -- used only when FollowCharacter = false
+  FollowSmoothing = 0.10,   -- 秒；0 = 瞬间吸附
+  FixedAnchorX = 0.50,      -- 仅在 FollowCharacter = false 时使用
   FixedAnchorY = 0.55,
-  AnchorHeight = 15,        -- cm above the player actor origin
-  AnchorOffsetX = 0,        -- 1080p baseline pixels
+  AnchorHeight = 15,        -- 厘米，位于玩家 actor 原点之上
+  AnchorOffsetX = 0,        -- 1080p 基准像素
   AnchorOffsetY = 0,
 
-  -- Arc geometry (1080p baseline pixels / degrees)
+  -- 弧形几何（1080p 基准像素 / 角度）
   Radius = 180,
   Thickness = 16,
   ArcSpan = 90,
@@ -44,65 +42,71 @@ local DEFAULTS = {
   HpOnLeft = true,
   BrushJitter = 0,
 
-  -- Appearance
+  -- 外观
   BarOpacity = 1.00,
   TrackOpacity = 0.45,
   GhostOpacity = 0.55,
-  GhostSpeed = 0.35,        -- seconds
+  GhostSpeed = 0.35,        -- 秒
   ShowGhost = true,
   ShowTip = true,
-  TipScale = 1.00,
+  TipScale = 1.80,
   TipAngle = -15,
-  HpColor = '#D6D2C6',      -- game health bar is pale silver
-  QiColor = '#D9A62E',      -- game Sha-Chi bar is gold
+  HpColor = '#D6D2C6',      -- 游戏血条为淡银色
+  QiColor = '#D9A62E',      -- 游戏杀气条为金色
   TrackColor = '#0A0908',
   WarnColor = '#E0301E',
 
-  -- Low-value warning
+  -- 低值警告
   WarnThresholdHp = 0.30,
   WarnThresholdQi = 0.25,
-  WarnFlashSpeed = 1.80,    -- Hz
+  WarnFlashSpeed = 1.80,    -- 赫兹
   WarnFlashAmount = 0.65,
 
-  -- Visibility
-  Visibility = 'dynamic',   -- always / hud / dynamic (dynamic = hide a full bar after HideDelay, otherwise follow HUD)
-  HideDelay = 3.0,          -- seconds a bar must stay full before dynamic hides it
-  DisplayMode = 'both',     -- both / hp / qi
+  -- 可见性
+  Visibility = 'dynamic',   -- always / hud / dynamic（dynamic = 满条持续 HideDelay 后隐藏，否则跟随 HUD）
+  HideDelay = 3.0,          -- 条必须保持满值的秒数，之后 dynamic 才会把它隐藏
+  DisplayMode = 'both',     -- both / hp / qi / off
 
-  -- Flat medicine / ultimate readouts (copied from the game HUD)
+  -- 平面式的药品 / 绝招读数（复制自游戏 HUD）
   MedicineHud = true,
   UltHud = true,
-  MedicineHudX = -1,        -- screen pixels; -1 = auto bottom-centre
+  MedicineHudX = -1,        -- 屏幕像素；-1 = 自动放在底部居中
   MedicineHudY = -1,
   UltHudX = -1,
   UltHudY = -1,
-  -- Per-icon shift inside its own group; 0 = the automatic layout.
+  -- 每个图标在自己组内的位移；0 = 自动布局。
   Med1OffX = 0, Med1OffY = 0,
   Med2OffX = 0, Med2OffY = 0,
   Ult1OffX = 0, Ult1OffY = 0,
   Ult2OffX = 0, Ult2OffY = 0,
-  IconScale = 1.0,          -- sizes every icon, its number and the gaps between them
+  IconScale = 1.0,          -- 决定每个图标、其数字以及它们之间间距的大小
   UltChargeBar = true,      -- 精纯杀气图标本体的充能填充
 
-  -- Keys / menu
-  ToggleKey = 'F4',
-  MenuKey = 'F2',
-  Lang = 'zh_cn',        -- file name under Scripts/lang, listed in languages.ini
+  -- 原生血条 / 杀气条（游戏自带的左下角条）
+  PinHudBars = false,       -- 把它们固定为固定长度并显示当前 / 最大值
+  HudBarWidth = -1,         -- 固定宽度，单位为 slate 像素；-1 = 游戏给这条设定的长度
+  HudNumbers = false,       -- 在游戏的条上显示当前 / 最大值；是否固定都能用
+  HudNumberStyle = 'side',  -- side = 在条的上方 / 下方，center = 在条内部
 
-  -- Assets
+  -- 按键 / 菜单
+  MenuKey = 'F2',
+  -- 空表示「尚未选择」：首次运行会用游戏自身的 culture 填入。
+  Lang = '',            -- Scripts/lang 下的语言文件名，即一个 culture 名称
+
+  -- 资源
   Texture = '/Game/PBZContent/VFX/SceneFX/UI/Common/Assets/T_UI_Common_InkBar_003.T_UI_Common_InkBar_003',
   InkMaterial = '/Game/PBZContent/VFX/SceneFX/UI/Common/M_UI_InkBar_A_002_Inst2.M_UI_InkBar_A_002_Inst2',
   TipTexture = '/Game/PBZContent/UI/Hud/Art/Hud_Blood_End.Hud_Blood_End',
 
-  -- Ink stroke
-  StrokeOverlap = 10,       -- how many segments long each brush copy is drawn
+  -- 墨迹笔画
+  StrokeOverlap = 10,       -- 每一份笔刷副本绘制多少个段长
 
   Debug = false,
 }
 Config.DEFAULTS = DEFAULTS
 
 local ORDER = {
-  'Enabled', 'Preset',
+  'Preset',
   'FollowCharacter', 'FollowSmoothing', 'FixedAnchorX', 'FixedAnchorY',
   'AnchorHeight', 'AnchorOffsetX', 'AnchorOffsetY',
   'Radius', 'Thickness', 'ArcSpan', 'Segments', 'HpOnLeft', 'BrushJitter', 'StrokeOverlap',
@@ -115,7 +119,8 @@ local ORDER = {
   'Med1OffX', 'Med1OffY', 'Med2OffX', 'Med2OffY',
   'Ult1OffX', 'Ult1OffY', 'Ult2OffX', 'Ult2OffY',
   'IconScale', 'UltChargeBar',
-  'ToggleKey', 'MenuKey', 'Lang',
+  'PinHudBars', 'HudBarWidth', 'HudNumbers', 'HudNumberStyle',
+  'MenuKey', 'Lang',
   'Texture', 'InkMaterial', 'TipTexture',
   'Debug',
 }
@@ -165,7 +170,7 @@ function Config.initLog()
 end
 
 ---------------------------------------------------------------------------------------------------
--- Colour helpers. UMG SetColorAndOpacity takes linear colour, settings.ini stores sRGB hex.
+-- 颜色辅助函数。UMG 的 SetColorAndOpacity 接受线性颜色，而 settings.ini 存的是 sRGB 十六进制。
 
 local function srgbToLinear(c)
   c = c / 255
@@ -255,7 +260,7 @@ function Config.hslToHex(h, s, l)
   return '#' .. hex(r) .. hex(g) .. hex(b)
 end
 
--- Unused by the renderer but kept for future overlay work.
+-- 渲染器没用到，但为以后做叠加层保留。
 function Config.linearToHex(colour)
   local function hex(c)
     c = math.floor(clamp(linearToSrgb(clamp(c or 0, 0, 1)), 0, 1) * 255 + 0.5)
@@ -265,7 +270,7 @@ function Config.linearToHex(colour)
 end
 
 ---------------------------------------------------------------------------------------------------
--- Load / save
+-- 读取 / 保存
 
 function Config.sanitize(S)
   S.FollowSmoothing = clamp(tonumber(S.FollowSmoothing) or 0.10, 0, 1.0)
@@ -283,15 +288,17 @@ function Config.sanitize(S)
   S.BarOpacity = clamp(tonumber(S.BarOpacity) or 1, 0.05, 1)
   S.TrackOpacity = clamp(tonumber(S.TrackOpacity) or 0.45, 0, 1)
   S.GhostOpacity = clamp(tonumber(S.GhostOpacity) or 0.55, 0, 1)
-  S.GhostSpeed = clamp(tonumber(S.GhostSpeed) or 0.35, 0.01, 1.0)
-  S.TipScale = clamp(tonumber(S.TipScale) or 1, 0.3, 3)
+  S.GhostSpeed = clamp(tonumber(S.GhostSpeed) or 0.35, 0.01, 3.0)
+  S.TipScale = clamp(tonumber(S.TipScale) or DEFAULTS.TipScale, 0.3, 3)
   S.TipAngle = clamp(tonumber(S.TipAngle) or -15, -90, 90)
   S.WarnThresholdHp = clamp(tonumber(S.WarnThresholdHp) or 0.30, 0, 1)
   S.WarnThresholdQi = clamp(tonumber(S.WarnThresholdQi) or 0.25, 0, 1)
   S.WarnFlashSpeed = clamp(tonumber(S.WarnFlashSpeed) or 1.8, 0.2, 8)
   S.WarnFlashAmount = clamp(tonumber(S.WarnFlashAmount) or 0.65, 0, 1)
   S.DisplayMode = tostring(S.DisplayMode or 'both'):lower()
-  if S.DisplayMode ~= 'hp' and S.DisplayMode ~= 'qi' then S.DisplayMode = 'both' end
+  if S.DisplayMode ~= 'hp' and S.DisplayMode ~= 'qi' and S.DisplayMode ~= 'off' then
+    S.DisplayMode = 'both'
+  end
   S.Visibility = tostring(S.Visibility or 'dynamic'):lower()
   if S.Visibility ~= 'always' and S.Visibility ~= 'hud' then S.Visibility = 'dynamic' end
   S.HideDelay = clamp(tonumber(S.HideDelay) or DEFAULTS.HideDelay, 0, 30)
@@ -305,40 +312,48 @@ function Config.sanitize(S)
     S[id .. 'OffY'] = clamp(math.floor((tonumber(S[id .. 'OffY']) or 0) + 0.5), -800, 800)
   end
   S.IconScale = clamp(tonumber(S.IconScale) or DEFAULTS.IconScale, 0.5, 3)
+  -- -1 表示「读一次条的宽度并沿用」；其他值就是宽度。
+  S.HudBarWidth = math.floor(clamp(tonumber(S.HudBarWidth) or -1, -1, 4000) + 0.5)
   S.HpColor = Config.normalizeHex(S.HpColor, DEFAULTS.HpColor)
   S.QiColor = Config.normalizeHex(S.QiColor, DEFAULTS.QiColor)
   S.TrackColor = Config.normalizeHex(S.TrackColor, DEFAULTS.TrackColor)
   S.WarnColor = Config.normalizeHex(S.WarnColor, DEFAULTS.WarnColor)
-  -- A language is one file under Scripts/lang, so keep only what a file name can hold.
-  local lang = tostring(S.Lang or DEFAULTS.Lang):lower():gsub('[^%w_%.]', '')
+  -- 语言是 Scripts/lang 下的一个文件，以 culture 命名，所以只保留
+  -- 文件名能容纳的字符。空值保持为空：它表示「尚未选择」。
+  local lang = tostring(S.Lang or ''):gsub('[^%w_%.%-]', '')
   if #lang > 24 then lang = lang:sub(1, 24) end
-  if lang == '' then lang = DEFAULTS.Lang end
   S.Lang = lang
-  -- The preset's file name is kept as written: trimmed and length-capped only.
+  -- 预设文件名按原样保留：只做去空白和长度截断。
   local preset = tostring(S.Preset or DEFAULTS.Preset):gsub('^%s+', ''):gsub('%s+$', '')
   if preset == '' then preset = DEFAULTS.Preset end
   S.Preset = preset:sub(1, 48)
-  S.ToggleKey = tostring(S.ToggleKey or 'F4'):upper()
   S.MenuKey = tostring(S.MenuKey or 'F2'):upper()
   S.Texture = tostring(S.Texture or DEFAULTS.Texture)
   S.InkMaterial = tostring(S.InkMaterial or DEFAULTS.InkMaterial)
   S.TipTexture = tostring(S.TipTexture or DEFAULTS.TipTexture)
-  S.Enabled = parseBool(S.Enabled)
   S.FollowCharacter = parseBool(S.FollowCharacter)
   S.HpOnLeft = parseBool(S.HpOnLeft)
   S.ShowGhost = parseBool(S.ShowGhost)
   S.ShowTip = parseBool(S.ShowTip)
   S.MedicineHud = parseBool(S.MedicineHud)
   S.UltHud = parseBool(S.UltHud)
+  S.PinHudBars = parseBool(S.PinHudBars)
+  S.HudNumbers = parseBool(S.HudNumbers)
+  S.HudNumberStyle = tostring(S.HudNumberStyle or 'side'):lower()
+  if S.HudNumberStyle ~= 'center' then S.HudNumberStyle = 'side' end
   S.Debug = parseBool(S.Debug)
   return S
 end
 
--- Older files used two booleans. Translate them the first time the new key is written.
+-- 旧文件用了两个布尔值。首次写入新键时把它们转换过来。
 local LEGACY_VISIBILITY = { FollowHud = true, ShowInCombat = true }
 
--- Shared by settings.ini and the preset files: read the known keys and convert
--- every value to the type its default has. Returns nil when the file is missing.
+-- 已不存在的功能。下次写入文件时这些行会被丢弃，
+-- 这样旧的 settings.ini 或预设不会一直保留它们的痕迹。
+local RETIRED_KEYS = { Enabled = true, ToggleKey = true }
+
+-- settings.ini 与预设文件共用：读取已知的键，并把每个值
+-- 转换成其默认值所属的类型。文件不存在时返回 nil。
 local function readValues(path)
   local values, legacy = {}, {}
   local f = io.open(path, 'r')
@@ -364,18 +379,59 @@ local function readValues(path)
   return values, legacy
 end
 
+local function hasLanguageFile(code)
+  local file = io.open(Config.DIR .. '/lang/' .. code .. '.ini', 'r')
+  if file == nil then return false end
+  file:close()
+  return true
+end
+
+-- 游戏自身运行所用的 culture。它同时也是语言文件的名字，
+-- 因此直接照用。游戏按 BCP 47 的方式命名 culture，所以英语可能
+-- 返回 "en" 或 "en-US"；当没有文件带完整标签时，只再试语言部分，
+-- 这样就不需要一张查找表。
+function Config.systemLanguage()
+  local okLib, lib = pcall(function()
+    return StaticFindObject('/Script/Engine.Default__KismetInternationalizationLibrary')
+  end)
+  if not okLib or lib == nil then return '' end
+  local okCulture, culture = pcall(function() return lib:GetCurrentCulture() end)
+  if not okCulture or culture == nil then return '' end
+  local okText, text = pcall(function() return culture:ToString() end)
+  if not okText or type(text) ~= 'string' then return '' end
+  text = text:gsub('[^%w_%.%-]', '')
+  if text == '' then return '' end
+  if hasLanguageFile(text) then return text end
+  local base = text:match('^([^%-_]+)')
+  if base ~= nil and base ~= '' and base ~= text and hasLanguageFile(base) then
+    return base
+  end
+  return ''
+end
+
 function Config.load()
   local S = Config.copyDefaults()
   local values, legacy = readValues(Config.INI)
   if values then
     for key, value in pairs(values) do S[key] = value end
+    -- 在数字有独立开关之前，它们是随固定一起开启的，因此
+    -- 只打开固定、没提到数字的文件仍然会显示数字。
+    if values.HudNumbers == nil and S.PinHudBars then S.HudNumbers = true end
     if values.Visibility == nil then
       if legacy.ShowInCombat then S.Visibility = 'dynamic'
       elseif legacy.FollowHud then S.Visibility = 'hud'
       else S.Visibility = 'always' end
     end
   end
-  return Config.sanitize(S)
+  Config.sanitize(S)
+  -- 还没选语言：这是首次使用。取游戏正在用的那个，
+  -- 并让调用方把它存下来，这样本次之后选择就不再跟随游戏。
+  local firstUse = false
+  if S.Lang == '' then
+    S.Lang = Config.systemLanguage()
+    firstUse = S.Lang ~= ''
+  end
+  return S, firstUse
 end
 
 local function formatValue(value)
@@ -384,15 +440,16 @@ local function formatValue(value)
   return tostring(value)
 end
 
--- Rewrite values in place so the file keeps its comments, blank lines and key order.
-local function writeValues(path, S)
+-- 原地重写数值，让文件保留自己的注释、空行和键的顺序。
+-- `omit` 给出那些即使文件里已有也不能留下的键。
+local function writeValues(path, S, omit)
   local lines, seen = {}, {}
   local f = io.open(path, 'r')
   if f then
     for line in f:lines() do
       local key = line:match('^%s*([%w_]+)%s*=')
-      if key and LEGACY_VISIBILITY[key] then
-        -- dropped in favour of Visibility
+      if key and (LEGACY_VISIBILITY[key] or RETIRED_KEYS[key] or (omit ~= nil and omit[key])) then
+        -- 丢弃：已被取代、功能已移除，或这个键不该出现在这个文件里
       elseif key and S[key] ~= nil then
         lines[#lines + 1] = key .. ' = ' .. formatValue(S[key])
         seen[key] = true
@@ -425,14 +482,14 @@ function Config.save(S)
 end
 
 ---------------------------------------------------------------------------------------------------
--- Presets
+-- 预设
 
 local PRESET_MAX = 64
 
--- The files are found by counting up from preset1.ini and stopping at the first
--- number without a file, so no directory listing is needed. key is the file's name
--- without extension and is what settings.ini stores; name is the display text kept
--- in that file's own Preset line. A file with no Preset line is listed as 预设 N.
+-- 文件靠从 preset1.ini 往上数来找，遇到第一个没有文件的编号就停，
+-- 因此不需要列目录。key 是文件名（不含扩展名），也是 settings.ini
+-- 里存的值；name 是该文件自己 Preset 行里保存的显示文本。
+-- 没有 Preset 行的文件显示为 预设 N。
 function Config.listPresets()
   local list = {}
   for index = 1, PRESET_MAX do
@@ -452,8 +509,8 @@ function Config.presetByKey(list, key)
   return nil
 end
 
--- A new preset takes the first free number, so its display name continues the
--- 预设 N run even when a file in the middle was deleted.
+-- 新预设取第一个空出的编号，因此即使中间有文件被删掉，
+-- 它的显示名也会接着 预设 N 的顺序往下排。
 function Config.nextPresetSlot(list)
   local taken = {}
   for _, preset in ipairs(list) do taken[preset.index] = true end
@@ -462,13 +519,15 @@ function Config.nextPresetSlot(list)
   return { index = index, key = Config.presetKey(index), name = '预设 ' .. index }
 end
 
--- Store the current values as a preset. The Preset line always holds the file's
--- own display name, never whichever preset happens to be selected.
+-- 把当前数值存成一个预设。Preset 行始终保存这个文件
+-- 自己的显示名，而不是当前恰好选中的那个预设。语言属于
+-- 玩家而不属于预设，所以既不写入也不保留。
 function Config.savePreset(preset, S)
   local copy = {}
   for key, value in pairs(S) do copy[key] = value end
   copy.Preset = preset.name
-  return writeValues(Config.presetPath(preset.index), copy)
+  copy.Lang = nil
+  return writeValues(Config.presetPath(preset.index), copy, { Lang = true })
 end
 
 return Config

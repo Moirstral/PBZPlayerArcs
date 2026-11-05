@@ -26,12 +26,13 @@ Lua Mod 且只读取玩家数值及游戏基础资产，理论兼容后续任何
 ----
 F2        打开 / 关闭设置菜单（改完自动保存到 settings.ini）
           想换键就改 settings.ini 里的 MenuKey，例如 MenuKey = F8
-F4        临时显示 / 隐藏双弧（也会写入 settings.ini）
 ESC       菜单打开时保存并关闭菜单；菜单没开时这个键仍然交给游戏（固定，不可改）
 鼠标左键  在菜单里按住滑块左右拖动；点击开关按钮和下拉框
           菜单打开时按住任意图标，所有图标一起移动
 鼠标右键  菜单打开时按住某个图标，只移动这一个
-鼠标中键  菜单打开时点击图标，全部图标回到默认位置
+鼠标滚轮  在菜单里把指针停在滑条上，滚动微调数值（整数 ±1，小数 ±0.1）
+鼠标中键  在菜单里把指针停在滑条上，点一下把该项恢复成内置默认值
+          菜单打开时点击图标，全部图标回到默认位置
 
 
 菜单与配置文件
@@ -43,15 +44,18 @@ ESC       菜单打开时保存并关闭菜单；菜单没开时这个键仍然�
 
 菜单右上角是语言下拉框：左边是「语言 / Language」标签，点右侧按钮展开可选语言，
 展开时按钮上的箭头会翻转，选完或点在别处都会收起。
-菜单里的文字都存在 Scripts\lang 下的语言文件里（zh_cn.ini 中文、en_us.ini English），
+菜单里的文字都存在 Scripts\lang 下的语言文件里（zh-Hans.ini 中文、en.ini English），
 一行一个「键 = 显示文字」，改完保存、重新按 F2 打开菜单就能看到。
+文件名就是游戏的语种代号（en-US 这类带地区的代号会退回 en 去找文件）；
+第一次启动时菜单会直接用游戏的语言，并写进 settings.ini 的 Lang。
 下拉框列出哪几种语言由 Scripts\lang\languages.ini 决定：一行一个语言文件名（不带 .ini），
-按文件里的顺序排。别的语种想加自己的语言，复制一份改名为例如 fr_fr.ini，改掉置顶的
-lang.name（下拉框显示的就是它），再在 languages.ini 里加一行 fr_fr 即可，不用改 mod 代码。
-「全部显示 / 仅血条 / 仅杀气」也是下拉框，在弹出的选项里选即可。
-开关按钮排成两行：第一行五个（跟随人物、残影、笔锋、药瓶、绝招），
-第二行四个（显示时机、显示范围、血左杀右、恢复默认）。
+按文件里的顺序排。别的语种想加自己的语言，复制一份改名为例如 fr.ini，改掉置顶的
+lang.name（下拉框显示的就是它），再在 languages.ini 里加一行 fr 即可，不用改 mod 代码。
+「全部显示 / 仅血条 / 仅杀气 / 关闭弧线」也是下拉框，在弹出的选项里选即可。
+开关按钮排成两行，每行六个：第一行是跟随人物、残影、笔锋、药瓶、绝招、固定原生条；
+第二行是显示时机、显示范围、血左杀右、显示数字、数值样式（上下显示 / 居中显示）、恢复默认。
 第一行里「药瓶显示 / 药瓶隐藏」「显示绝招 / 隐藏绝招」分别控制两组图标。
+鼠标停在滑条、开关或下拉框上时，旁边会浮出一句说明，告诉你这一项控制什么。
 
 预设
 ----
@@ -61,8 +65,8 @@ lang.name（下拉框显示的就是它），再在 languages.ini 里加一行 f
 - 下拉框：选一个预设就把那一份设置整套换成当前值，立刻生效并写回 settings.ini。
 - 保存：把当前所有设置写进当前选中的那个预设文件。
 - 新建：用当前设置新建一个预设，名字顺延（预设 3、预设 4…），并切换过去。
-- 恢复默认：恢复成「当前预设」里存的值，不是出厂默认值。想回到出厂那一套，
-  在下拉框里选「预设 1」再点恢复默认即可。
+- 恢复默认：恢复成「当前预设」里存的值，不是出厂默认值。单项也可以在滑条上
+  用中键点一下，回到内置默认值。
 
 预设存放在 mod 的 Scripts\preset 文件夹里，一个预设一个文件：preset1.ini、preset2.ini…
 编号必须连续（中间缺一个就到此为止）。每个文件都是完整的一份设置，格式和
@@ -71,16 +75,38 @@ settings.ini 一样，可以直接在游戏外改。文件里的 Preset 一行�
 当前预设的文件名（例如 preset2，不带 .ini），只按文件名对应，所以改了显示名
 也不会跟丢；文件名对应的预设不存在时，菜单会把它当成还没保存过的新配置。
 
-出厂自带两份：预设 1 = 默认参数，预设 2 = 制作时的一套实际配置。
+自带两份：预设 1 = 制作时实际在用的那套配置，预设 2 = 另一套更细的笔触。
 
 菜单顶部提示里的按键名会跟着 MenuKey 变化：把 MenuKey 改成 F8，提示就显示 F8。
 
 菜单里使用的是系统自带的箭头光标，可以移动到面板外的任意位置。
 
 
+固定游戏原生血条 / 杀气条（可选）
+--------------------------------
+游戏自己左下角的血条和杀气条会随着上限变长，后期越拉越长。打开「固定原生条」后，
+这两条会回到游戏最初给它们设定的长度上，不再变长。
+默认关闭，关着的时候原生条完全不受影响。
+
+「显示数字」是单独的开关，不固定原生条也能显示，固定的条和游戏原本的条都可以用：
+- 上下显示：血量的数字在条的正上方，杀气的数字在条的正下方，颜色跟随 HpColor / QiColor。
+- 居中显示：数字用白字显示在每条条身的正中间，内容同样是「当前值 / 最大值」，
+  字号固定得很小，保证在游戏那两条细条里也放得下。
+打开「固定原生条」时会同时打开「显示数字」，之后可以用「显示数字」单独关掉。
+数字的样式用第二行的数值样式下拉框切换。
+
+长度取自游戏最初给这两条设定的长度，和你什么时候打开开关无关；血条和杀气条各自保留
+自己的长度比例。也可以在 settings.ini 里把 HudBarWidth 写成一个具体数值，两条都会固定
+成这个长度（-1 表示各用各自的初值，日志会打印这两个值）。
+如果游戏里找不到这两条的长度控件，就不去改原生条，只在日志里说明。
+数字用的是游戏原来的字体和条上的同一层，所以过场、菜单里隐藏 HUD 时数字跟着一起消失。
+
+如果同时还装着别的移动或缩放原生血条的 mod，两边都会去改同一条控件，会互相覆盖，
+只能用其中一个。
+
+
 设置项说明（数值以 1080p 为基准，分辨率变化时自动缩放）
 ----------------------------------------------------
-Enabled              总开关
 Preset               当前预设的文件名（不带 .ini），对应 Scripts/preset/ 里的 presetN.ini
 FollowCharacter      true = 跟随人物；false = 使用固定屏幕位置
 FollowSmoothing      跟随平滑，0 = 完全贴合，越大越柔和
@@ -124,7 +150,8 @@ Visibility           显示时机（菜单里是同名的下拉框）：
                      没满时跟随游戏 HUD，HUD 一隐藏就立刻一起隐藏、不再等延迟
 HideDelay            动态隐藏延迟（秒），默认 3.0，0 = 满了立刻隐藏
 DisplayMode          显示范围：both = 血条和杀气都显示（默认）/
-                     hp = 只显示血条 / qi = 只显示杀气；左右位置仍由 HpOnLeft 决定
+                     hp = 只显示血条 / qi = 只显示杀气 / off = 两条弧线都不显示
+                     （药瓶、绝招等图标不受影响）；左右位置仍由 HpOnLeft 决定
 
 MedicineHud          true = 显示药瓶图标和剩余数量；false = 隐藏
 UltHud               true = 显示绝招层数和暗源数量；false = 隐藏
@@ -140,8 +167,14 @@ IconScale            图标整体大小（0.5 ~ 3），默认 1.0；图标、数
                      一起放大，整排图标的底边位置不变
 UltChargeBar         true = 精纯杀气的充能进度直接填充在绝招图标上（从下往上）；false = 隐藏
 
-ToggleKey / MenuKey  按键名，例如 F4、F2、F8；MenuKey 默认 F2，改名后菜单提示会同步
-Lang                 菜单语言，取 Scripts\lang 下的语言文件名（如 zh_cn、en_us）
+PinHudBars           true = 把游戏原生血条 / 杀气条固定在游戏最初设定的长度
+HudBarWidth          固定长度（以游戏 UI 自身的单位计，日志会打印两条各自的初值）；-1 = 各用各自的初值
+HudNumbers           true = 在原生条上显示「当前值 / 最大值」，不固定条也能打开
+HudNumberStyle       side = 血条上方 / 杀气下方；center = 白字居中在每条条身上
+
+MenuKey              按键名，例如 F2、F8；改名后菜单提示会同步
+Lang                 菜单语言，取 Scripts\lang 下的语言文件名（如 zh-Hans、en）；
+                     留空 = 第一次启动时按游戏语言自动填上
 
 InkMaterial          笔刷材质路径，默认用游戏血条同款的水墨材质，会响应 HpColor/QiColor 着色
 Texture              备用笔触贴图路径：材质加载不到时改用这张贴图
@@ -199,13 +232,15 @@ Debug                true 时每 5 秒往日志写一行状态，排查问题用
 - 图标本体的充能填充按矩形边界裁切，明暗分界线是一条水平直线，不会跟着火苗的
   轮廓走。
 - 菜单使用游戏鼠标位置，极少数 UI 缩放设置下可能需要重新打开一次菜单校准。
+- 原生条的固定长度以游戏 UI 自身的单位计（日志会打印两条各自的初值，可以照着填
+  HudBarWidth）。
 - 只支持单人玩家自己的数值，不显示敌人或队友（未测试联机MOD兼容性）。
 
 
 排查
 ----
 - 没有任何弧线：先确认 UE4SS 本身已注入；再看
-  Scripts\PBZArcs.log 里是否出现 “v0.2.0 loaded”。
+  Scripts\PBZArcs.log 里是否出现 “v0.3.0 loaded”。
 - 有日志但没有弧线：确认已读取存档并进入可操作状态。
 - 想反馈问题：把 Debug 改成 true，重启游戏，复现后提供
   Scripts\PBZArcs.log。
@@ -246,15 +281,17 @@ Keys
 F2        Open / close the settings menu (changes are saved to settings.ini
           automatically). To rebind, change MenuKey in settings.ini, for example
           MenuKey = F8
-F4        Temporarily show / hide both arc bars (also written to settings.ini)
 ESC       While the menu is open, save and close it; while the menu is closed the key
           still goes to the game (fixed, cannot be rebound)
 LMB       In the menu, hold a slider and drag it left/right; click the toggle buttons
           and drop-downs. With the menu open, hold anywhere on the icons to move all
           icons together
 RMB       With the menu open, hold one icon to move only that icon
-MMB       With the menu open, click an icon to return all icons to their default
-          position
+Mouse wheel  In the menu, with the pointer over a slider, scroll to fine-tune the
+          value (1 per notch, 0.1 on decimal sliders)
+MMB       In the menu, with the pointer over a slider, click to restore that item's
+          built-in default. With the menu open, click an icon to return all icons to
+          their default position
 
 
 Menu and config file
@@ -270,21 +307,27 @@ In the top-right corner of the menu is the language drop-down: the "语言 / Lan
 label on the left, and the button on the right expands the list of languages. While it
 is open the arrow on the button flips, and it closes after you pick a language or click
 somewhere else.
-All menu text lives in language files under Scripts\lang (zh_cn.ini Chinese, en_us.ini
+All menu text lives in language files under Scripts\lang (zh-Hans.ini Chinese, en.ini
 English), one "key = displayed text" per line. Edit and save the file, then press F2
 again to see the change in the menu.
+The file name is the game's own language code (a region-tagged code such as en-US
+falls back to en when looking for the file); on the first launch the menu simply
+uses the game's language and stores it in Lang.
 Which languages the drop-down lists is decided by Scripts\lang\languages.ini: one
 language file name per line (without .ini), in the order they appear in the file. To
-add your own language, copy a file and rename it to something like fr_fr.ini, change
-lang.name at the top (that is what the drop-down shows), then add a line fr_fr to
+add your own language, copy a file and rename it to something like fr.ini, change
+lang.name at the top (that is what the drop-down shows), then add a line fr to
 languages.ini. No code changes needed.
-"All / HP only / Sha-Chi only" is also a drop-down; pick an option from the pop-up
-list.
-The toggle buttons are arranged in two rows: five on the first row (follow character,
-ghost trail, brush tip, potions, ultimate) and four on the second (display timing,
-display scope, HP left / Sha-Chi left, reset to default).
+"All / HP only / Sha-Chi only / No arcs" is also a drop-down; pick an option from the
+pop-up list.
+The buttons are arranged in two rows of six: the first row is follow character, ghost
+trail, brush tip, potions, ultimate, pin HUD bars; the second row is display timing,
+display scope, HP left / Sha-Chi left, show numbers, number style (above / below or
+inside bars), reset to default.
 On the first row, "potions shown / potions hidden" and "ultimate shown / ultimate
 hidden" control the two icon groups respectively.
+Hovering a slider, toggle or drop-down floats a short note next to the pointer
+explaining what that item controls.
 
 
 Presets
@@ -299,8 +342,8 @@ drop-down showing the current preset name; to its right are the two small button
 - New: creates a new preset from the current settings, named in sequence (preset 3,
   preset 4, ...) and switches to it.
 - Reset to default: restores the values stored in the *current preset*, not the
-  factory defaults. To get back to the factory set, pick "预设 1" in the drop-down and
-  then click reset.
+  factory defaults. A single item can also be reset to its built-in default with a
+  middle click on its slider.
 
 Presets live in the mod's Scripts\preset folder, one file per preset: preset1.ini,
 preset2.ini, ... The numbering must be contiguous (the list stops at the first gap).
@@ -312,8 +355,8 @@ settings.ini records the file name of the current preset (for example preset2, w
 If no preset exists for that file name, the menu treats it as a configuration that has
 never been saved.
 
-Two presets ship with the mod: preset 1 = default parameters, preset 2 = a set of
-actual values used while the mod was being made.
+Two presets ship with the mod: preset 1 = the set actually used while the mod was
+being made, preset 2 = another set with finer strokes.
 
 The key name in the hint at the top of the menu follows MenuKey: set MenuKey to F8 and
 the hint shows F8.
@@ -321,9 +364,36 @@ the hint shows F8.
 The menu uses the system arrow cursor, which can move anywhere outside the panel.
 
 
+Pinning the game's own HP / Sha-Chi bars (optional)
+---------------------------------------------------
+The game's own HP and Sha-Chi bars in the lower-left corner stretch as the maximum
+values grow, getting longer and longer late in the game. Switching on "Pin HUD bars"
+puts both bars back at the length the game itself gives them. It is off by default,
+and while it is off the native bars are completely untouched.
+
+"Show numbers" is a separate switch and works without pinning, on both the pinned bars
+and the game's own:
+- Above / below: the HP number sits above its bar and the Sha-Chi number below it,
+  coloured with HpColor / QiColor.
+- Inside bars: white text in the middle of each bar (not tied to the filled part), again
+  "current / max". The font is deliberately small so it fits the game's thin bars.
+Turning on "Pin HUD bars" also turns on "Show numbers"; the numbers switch can then be
+turned off on its own. The number style is chosen by the drop-down in the second row.
+
+The length is the one the game gives the two bars when a save starts, so it does not
+depend on when you switch the toggle on; the HP and Sha-Chi bars keep their own
+proportions. You can also put a value into HudBarWidth in settings.ini to use one length
+for both bars, in the same units the game's UI uses (-1 means each bar keeps its own
+initial length; the log prints both). If the game's length controls cannot be found, the
+native bars are left untouched and the log says so. The numbers live on the same widget
+layer as the bars, so they disappear with the HUD in cutscenes and menus.
+
+If you also run another mod that moves or scales the native bars, both write to the
+same widget and overwrite each other; use only one of them.
+
+
 Settings reference (values are based on 1080p and scale with resolution)
 -----------------------------------------------------------------------
-Enabled              Master switch
 Preset               File name of the current preset (without .ini), matching the
                      presetN.ini in Scripts/preset/
 FollowCharacter      true = follow the character; false = use a fixed screen position
@@ -378,8 +448,8 @@ Visibility           Display timing (same-named drop-down in the menu):
 HideDelay            Dynamic-hide delay (seconds), default 3.0; 0 = hide immediately
                      when full
 DisplayMode          Display scope: both = HP and Sha-Chi (default) / hp = HP only /
-                     qi = Sha-Chi only; the left/right position is still set by
-                     HpOnLeft
+                     qi = Sha-Chi only / off = neither arc (icons are unaffected);
+                     the left/right position is still set by HpOnLeft
 
 MedicineHud          true = show potion icons and remaining counts; false = hide
 UltHud               true = show ultimate stacks and Dark Source count; false = hide
@@ -398,10 +468,19 @@ IconScale            Overall icon size (0.5-3), default 1.0; icons, numbers and 
 UltChargeBar         true = the Sha-Chi Essence charge fills the ultimate icon
                      directly (bottom to top); false = hide
 
-ToggleKey / MenuKey  Key names, for example F4, F2, F8; MenuKey defaults to F2, and the
-                     menu hint follows the new name
+PinHudBars           true = put the game's own HP / Sha-Chi bars back at the length the
+                     game gives them
+HudBarWidth          Fixed length in the game UI's own units (the log prints both
+                     initial values); -1 = each bar keeps its own initial length
+HudNumbers           true = show "current / max" on the native bars; works without the
+                     pin as well
+HudNumberStyle       side = HP above / Sha-Chi below; center = white text centred in
+                     each bar
+
+MenuKey              Key name, for example F2 or F8; the menu hint follows the new name
 Lang                 Menu language, a language file name under Scripts\lang
-                     (for example zh_cn, en_us)
+                     (for example zh-Hans, en); empty = taken from the game's
+                     language on the first launch
 
 InkMaterial          Brush material path; by default the same ink material as the
                      game's HP bar, which responds to HpColor/QiColor tinting
@@ -483,6 +562,8 @@ Known limitations
   dim is a straight horizontal one and does not follow the flame's outline.
 - The menu uses the game's cursor position; with a few unusual UI-scale settings you
   may need to reopen the menu once to recalibrate.
+- The pinned length is in the game UI's own units (the log prints both initial values,
+  so you can copy one into HudBarWidth).
 - Only the single player's own values are supported; enemy and ally values are not
   shown (compatibility with multiplayer mods is untested).
 
@@ -490,7 +571,7 @@ Known limitations
 Troubleshooting
 ---------------
 - No bars at all: first check that UE4SS itself is injected, then whether
-  "v0.2.0 loaded" appears in Scripts\PBZArcs.log.
+  "v0.3.0 loaded" appears in Scripts\PBZArcs.log.
 - A log exists but there are no bars: make sure you have loaded a save and are in
   control of the character.
 - To report a problem: set Debug to true, restart the game, reproduce the issue and

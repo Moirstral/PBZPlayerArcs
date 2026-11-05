@@ -1,4 +1,4 @@
--- PBZPlayerArcs: in-game F2 settings menu. Reads and writes the same settings.ini.
+-- PBZPlayerArcs：游戏内 F2 设置菜单。读写同一个 settings.ini。
 local Config = require('PBZArcsConfig')
 local Lang = require('PBZArcsLang')
 
@@ -21,12 +21,12 @@ local COL_A_LABEL, COL_A_SLIDER, COL_A_VALUE = 24, 178, 444
 local COL_B_LABEL, COL_B_SLIDER, COL_B_VALUE = 512, 666, 932
 local SLIDER_W = 250
 
--- The icons sit at 55 and the arcs at 50, so the dim has to live below both:
--- opening the menu should darken the game HUD, not the readouts being edited.
+-- 图标在 55、弧形在 50，所以遮罩必须位于两者之下：
+-- 打开菜单应该压暗游戏 HUD，而不是正在被编辑的那些读数。
 local DIM_Z = 44
--- The panel normally stays under the arcs and the icons. It only jumps above
--- everything while the pointer is inside it, because widgets on top of it would
--- swallow the mouse events the sliders and the icon drags are built on.
+-- 面板通常待在弧形和图标之下。只有当指针在它里面时才会跳到
+-- 最上层，因为压在它上面的控件会吞掉滑块和图标拖动所依赖的
+-- 鼠标事件。
 local MENU_Z, MENU_TOP_Z = 45, 300
 
 local function valid(object)
@@ -49,8 +49,8 @@ local function unwrap(value)
   return value
 end
 
--- FindFirstOf walks every object, so the per-frame paths must reuse the result.
--- A destroyed controller fails IsValid() and is looked up again on the next call.
+-- FindFirstOf 会遍历所有对象，所以每帧走的路径必须复用结果。
+-- 已销毁的 controller 会 IsValid() 失败，并在下次调用时重新查找。
 local cachedPC = nil
 local function playerController()
   if valid(cachedPC) then return cachedPC end
@@ -161,8 +161,8 @@ local function addText(tree, parent, name, value, x, y, w, h, size, colour, z)
   return text, slot
 end
 
--- Render-transform rotation is the only way to draw a chevron without a texture.
--- If the struct write is rejected, callers fall back to a text glyph.
+-- 渲染变换旋转是不用贴图画出箭头的唯一办法。
+-- 如果结构体写入被拒绝，调用方会退回使用文字字形。
 local function setAngle(widget, angle)
   if not valid(widget) then return false end
   return pcall(function()
@@ -185,47 +185,50 @@ local WHITE = C('#D8D2C4')
 local DIM = C('#8A8377')
 local TRACK = C('#1E1F1C')
 local PANEL_BG = C('#0A0B0C', 0.96)
+local TOOLTIP_BG = C('#16171A', 0.98)
 local BUTTON_BG = C('#24262A')
 local BUTTON_ON = C('#6E5420')
 local CURSOR = C('#FFF0C8')
+-- 提示行换行前允许达到的最大宽度；框本身按结果自适应。
+local TIP_WRAP = 430
 
 local function formatValue(def, value)
   if def.integer then return tostring(math.floor(value + 0.5)) end
   return string.format('%.2f', value)
 end
 
--- Row definitions. Colour rows read/write HSL channels but store a hex colour in S.
+-- 行定义。颜色行读写 HSL 通道，但在 S 里存的是十六进制颜色。
 local ROWS_A = {
   { key = 'Radius', id = 'row.radius', min = 60, max = 400, step = 1, integer = true },
   { key = 'Thickness', id = 'row.thickness', min = 2, max = 30, step = 1, integer = true },
   { key = 'ArcSpan', id = 'row.arcSpan', min = 30, max = 180, step = 1, integer = true },
   { key = 'Segments', id = 'row.segments', min = 8, max = 96, step = 1, integer = true },
   { key = 'BrushJitter', id = 'row.brushJitter', min = 0, max = 1, step = 0.01 },
-  { key = 'StrokeOverlap', id = 'row.strokeOverlap', min = 1, max = 24, step = 0.5 },
+  { key = 'StrokeOverlap', id = 'row.strokeOverlap', min = 1, max = 24, step = 0.1 },
   { key = 'AnchorHeight', id = 'row.anchorHeight', min = -50, max = 250, step = 1, integer = true },
   { key = 'AnchorOffsetX', id = 'row.anchorOffsetX', min = -400, max = 400, step = 1, integer = true },
   { key = 'AnchorOffsetY', id = 'row.anchorOffsetY', min = -400, max = 400, step = 1, integer = true },
   { key = 'BarOpacity', id = 'row.barOpacity', min = 0.05, max = 1, step = 0.01 },
   { key = 'TrackOpacity', id = 'row.trackOpacity', min = 0, max = 1, step = 0.01 },
   { key = 'GhostOpacity', id = 'row.ghostOpacity', min = 0, max = 1, step = 0.01 },
-  { key = 'GhostSpeed', id = 'row.ghostSpeed', min = 0.02, max = 0.5, step = 0.01 },
+  { key = 'GhostSpeed', id = 'row.ghostSpeed', min = 0.02, max = 3, step = 0.01 },
   { key = 'FollowSmoothing', id = 'row.followSmoothing', min = 0, max = 0.4, step = 0.01 },
 }
 
 local ROWS_B = {
-  { key = 'HpColor', colour = true, channel = 'h', id = 'row.hpColorH', min = 0, max = 360, step = 1, integer = true },
-  { key = 'HpColor', colour = true, channel = 's', id = 'row.hpColorS', min = 0, max = 100, step = 1, integer = true },
-  { key = 'HpColor', colour = true, channel = 'l', id = 'row.hpColorL', min = 0, max = 100, step = 1, integer = true },
-  { key = 'QiColor', colour = true, channel = 'h', id = 'row.qiColorH', min = 0, max = 360, step = 1, integer = true },
-  { key = 'QiColor', colour = true, channel = 's', id = 'row.qiColorS', min = 0, max = 100, step = 1, integer = true },
-  { key = 'QiColor', colour = true, channel = 'l', id = 'row.qiColorL', min = 0, max = 100, step = 1, integer = true },
+  { key = 'HpColor', colour = true, channel = 'h', tip = 'tip.hpColor', id = 'row.hpColorH', min = 0, max = 360, step = 1, integer = true },
+  { key = 'HpColor', colour = true, channel = 's', tip = 'tip.hpColor', id = 'row.hpColorS', min = 0, max = 100, step = 1, integer = true },
+  { key = 'HpColor', colour = true, channel = 'l', tip = 'tip.hpColor', id = 'row.hpColorL', min = 0, max = 100, step = 1, integer = true },
+  { key = 'QiColor', colour = true, channel = 'h', tip = 'tip.qiColor', id = 'row.qiColorH', min = 0, max = 360, step = 1, integer = true },
+  { key = 'QiColor', colour = true, channel = 's', tip = 'tip.qiColor', id = 'row.qiColorS', min = 0, max = 100, step = 1, integer = true },
+  { key = 'QiColor', colour = true, channel = 'l', tip = 'tip.qiColor', id = 'row.qiColorL', min = 0, max = 100, step = 1, integer = true },
   { key = 'WarnThresholdHp', id = 'row.warnThresholdHp', min = 0, max = 1, step = 0.01 },
   { key = 'WarnThresholdQi', id = 'row.warnThresholdQi', min = 0, max = 1, step = 0.01 },
   { key = 'WarnFlashSpeed', id = 'row.warnFlashSpeed', min = 0.2, max = 8, step = 0.1 },
   { key = 'WarnFlashAmount', id = 'row.warnFlashAmount', min = 0, max = 1, step = 0.01 },
   { key = 'TipScale', id = 'row.tipScale', min = 0.3, max = 3, step = 0.05 },
   { key = 'TipAngle', id = 'row.tipAngle', min = -90, max = 90, step = 1, integer = true },
-  { key = 'HideDelay', id = 'row.hideDelay', min = 0, max = 10, step = 0.5 },
+  { key = 'HideDelay', id = 'row.hideDelay', min = 0, max = 10, step = 0.1 },
   { key = 'IconScale', id = 'row.iconScale', min = 0.5, max = 3, step = 0.05 },
 }
 
@@ -281,12 +284,17 @@ function Menu.new(settings, callbacks)
     cursorV = nil,
     pointerX = nil,
     pointerY = nil,
+    mouseX = nil,
+    mouseY = nil,
     stillTime = 0,
     lastMoveX = nil,
     lastMoveY = nil,
     text = nil,
     textLang = nil,
     hoverKey = nil,
+    tipRoot = nil,
+    tipText = nil,
+    tipKey = nil,
   }, Menu)
   return self
 end
@@ -371,8 +379,8 @@ function Menu:setChevron(chevron, open)
 end
 
 -- def: key, x, y, w, h, up, options[{ value, id?, label? }], value(), set(v), text()
--- The option rows are built from scratch because a dropdown may be re-populated
--- while the menu stays open, so the row count cannot be fixed up front.
+-- 选项行是从头重建的，因为菜单保持打开时下拉框可能被重新填充，
+-- 所以行数无法预先确定。
 local dropSeq = 0
 
 function Menu:fillDropdownMenu(dd, options)
@@ -416,6 +424,7 @@ function Menu:buildDropdown(parent, tree, def)
     def.options and def.options[1] and def.options[1].id or 'menu.title')
   if not button then return nil end
   dd.button = button
+  button.tip = def.tip
   if button.textSlot then
     pcall(function() button.textSlot:SetSize({ X = def.w - 30, Y = def.h - 8 }) end)
   end
@@ -465,8 +474,8 @@ function Menu:toggleDropdown(dd)
   local opening = not dd.open
   self:closeDropdowns(dd)
   dd.open = opening
-  -- A dropdown with a live option list (presets, languages) is re-populated on every
-  -- open, so a file added or renamed while the menu is up shows up at once.
+  -- 带有动态选项列表（预设、语言）的下拉框每次打开都会重新填充，
+  -- 所以菜单打开期间新增或改名的文件会立刻出现。
   if opening and dd.optionsFor then
     self:forgetPresets()
     self:fillDropdownMenu(dd, dd.optionsFor())
@@ -482,7 +491,9 @@ function Menu:chooseDropdown(dd, value)
   self:saveSoon(true)
 end
 
-function Menu:wireToggle(button, def)  button.get = def.get
+function Menu:wireToggle(button, def)
+  button.get = def.get
+  button.tip = def.tip
   button.idOn, button.idOff = def.idOn, def.idOff
   button.action = function()
     local value = not def.get()
@@ -495,12 +506,12 @@ function Menu:wireToggle(button, def)  button.get = def.get
 end
 
 ---------------------------------------------------------------------------------------------------
--- Presets
+-- 预设
 
--- Read from the files in Scripts/preset so a name edited outside the game shows up
--- without a restart. The button text refreshes often, so the list is cached and
--- dropped whenever the menu reopens or a preset is written. A missing folder is
--- reported as one unnamed preset, which still gives 保存 somewhere to write.
+-- 从 Scripts/preset 里的文件读取，这样在游戏外改过的名字不用重启
+-- 就能显示出来。按钮文本刷新频繁，所以列表会缓存，并在菜单重新
+-- 打开或写入预设时丢弃。文件夹缺失时报告为一个未命名预设，
+-- 这样 保存 至少还有地方可写。
 function Menu:presetList()
   if self._presets then return self._presets end
   local list = Config.listPresets()
@@ -515,28 +526,32 @@ function Menu:forgetPresets()
   self._presets = nil
 end
 
--- The preset the live values belong to. A file name that no longer exists gets a
--- fresh slot instead of losing the save.
+-- 当前数值所属的预设。已不存在的文件名会拿到一个
+-- 新的空位，而不是让这次保存丢掉。
 function Menu:presetTarget()
   local list = self:presetList()
   return Config.presetByKey(list, self.S.Preset) or Config.nextPresetSlot(list)
 end
 
--- The display name of the selected preset, falling back to the stored file name.
+-- 选中预设的显示名，取不到时回退到已保存的文件名。
 function Menu:presetName()
   local preset = Config.presetByKey(self:presetList(), self.S.Preset)
   return preset and preset.name or tostring(self.S.Preset)
 end
 
--- Loading a preset replaces the live settings with the stored ones, then the panel
--- is redrawn from them and the arcs rebuilt.
+-- 加载预设会用已存的值替换当前设置，然后按它们重画面板
+-- 并重建弧形。
 function Menu:applyPreset(key)
   local preset = Config.presetByKey(self:presetList(), key)
   if preset == nil or preset.values == nil then
-    if self.callbacks.log then self.callbacks.log('preset missing: ' .. tostring(key)) end
+    if self.callbacks.alert then self.callbacks.alert('preset missing: ' .. tostring(key)) end
     return
   end
-  for k, value in pairs(preset.values) do self.S[k] = value end
+  -- 语言属于玩家而不属于预设，所以仍然带着 Lang 行的旧预设
+  -- 文件永远不会切换菜单语言。
+  for k, value in pairs(preset.values) do
+    if k ~= 'Lang' then self.S[k] = value end
+  end
   self.S.Preset = preset.key
   Config.sanitize(self.S)
   self:refreshAllRows()
@@ -552,8 +567,8 @@ function Menu:saveCurrentPreset()
   if self.callbacks.log then self.callbacks.log('preset saved: ' .. preset.name) end
 end
 
--- The new preset takes the next free number, keeps the values as they are, and
--- becomes the selected one.
+-- 新预设取下一个空编号，数值保持原样，
+-- 并成为当前选中的那个预设。
 function Menu:createPreset()
   local preset = Config.nextPresetSlot(self:presetList())
   if not Config.savePreset(preset, self.S) then return end
@@ -592,8 +607,8 @@ end
 
 function Menu:build()
   self:forgetPresets()
-  -- Re-read the language files on every open so edited wording and newly added
-  -- languages show up without restarting the game.
+  -- 每次打开都重新读取语言文件，这样改过的措辞和新加的语言
+  -- 不用重启游戏就能显示出来。
   Lang.reload()
   self.text = nil
   self:destroy()
@@ -622,7 +637,7 @@ function Menu:build()
   addBorder(tree, panel, 0, 0, PANEL_W, PANEL_H, PANEL_BG, 0)
   addBorder(tree, panel, 0, 0, PANEL_W, 2, GOLD, 1)
 
-  -- The game keeps its hardware cursor hidden, so the menu draws its own.
+  -- 游戏一直隐藏硬件光标，所以菜单自己画一个。
   local hoverBand, hoverBandSlot = addBorder(tree, panel, 12, 0, PANEL_W - 24, ROW_H,
     { R = 0.72, G = 0.57, B = 0.24, A = 0.14 }, 0)
   if hoverBand then pcall(function() hoverBand:SetVisibility(1) end) end
@@ -661,6 +676,11 @@ function Menu:build()
           sliderX = sliderX,
           y = y,
           index = index,
+          -- 整行都响应中键：标签、轨道和读数。
+          -- 除非该行覆盖，否则 tip 由标签 id 推导出来。
+          labelX = labelX,
+          valueX = valueX,
+          tip = def.tip or ('tip.' .. def.id:sub(5)),
         }
         self.rows[#self.rows + 1] = row
         self.labels[#self.labels + 1] = { widget = label, id = def.id }
@@ -669,37 +689,78 @@ function Menu:build()
   end
   buildRows(ROWS_A, COL_A_LABEL, COL_A_SLIDER, COL_A_VALUE, 'A')
   buildRows(ROWS_B, COL_B_LABEL, COL_B_SLIDER, COL_B_VALUE, 'B')
-  -- Keep a reference from the label to the row for language refresh.
+  -- 让标签持有对该行的引用，以便刷新语言。
   for i, row in ipairs(self.rows) do
     for _, item in ipairs(self.labels) do
       if item.widget == row.label then item.row = row end
     end
   end
 
-  -- Both columns hold the same number of rows, so the button block sits one
-  -- 16px gap under whichever is longer.
+  -- 悬停提示：一个跟随指针的小框，用来解释指针下的条目。
+  -- 它靠渲染平移移动，而不是改 slot 位置，所以跟随鼠标
+  -- 不会每帧都跑一遍 canvas 布局。边框把文本当作自己的子控件
+  -- 并自适应大小，因此框总是和文本实际换行后的结果一致；
+  -- 显式指定高度只会让背景绑在一个对换行的猜测上。
+  local tipRoot = StaticConstructObject(cls(CLASS.canvas), tree, FName('PBZArcs_MenuTip_' .. suffix))
+  if valid(tipRoot) then
+    addChild(panel, tipRoot, 0, 0, PANEL_W, PANEL_H, 60)
+    local tipBg, tipBgSlot = addBorder(tree, tipRoot, 0, 0, 0, 0, TOOLTIP_BG, 0)
+    local tipText = StaticConstructObject(cls(CLASS.text), tree, FName('PBZArcs_MenuTipText_' .. suffix))
+    if tipBg and valid(tipText) then
+      pcall(function() tipText:SetText(FText('')) end)
+      pcall(function() tipText.Font.Size = 12 end)
+      local col = toLinear(WHITE)
+      pcall(function()
+        tipText:SetColorAndOpacity({
+          SpecifiedColor = { R = col.R, G = col.G, B = col.B, A = col.A },
+          ColorUseRule = 0,
+        })
+      end)
+      -- 换行是手工做的，而不是交给文本块：UMG 会把这段文本按给定宽度的
+      -- 大约三分之二处换行，而框必须和文本的实际表现一致。
+      -- 用硬换行后，框只需量最长的那一行。
+      pcall(function() tipText:SetAutoWrapText(false) end)
+      pcall(function() tipBg:SetPadding({ Left = 9, Top = 6, Right = 9, Bottom = 7 }) end)
+      local attached = pcall(function() tipBg:AddChild(tipText) end)
+      if attached then pcall(function() tipBgSlot:SetAutoSize(true) end) end
+      pcall(function() tipRoot:SetVisibility(1) end)
+      self.tipRoot, self.tipBg, self.tipBgSlot = tipRoot, tipBg, tipBgSlot
+      self.tipText = tipText
+      self:probeLog('tip: border ' .. (attached and 'ok' or 'failed'))
+    end
+  end
+
+  -- 两列的行数相同，所以按钮区落在较长的那一列下面
+  -- 隔一个 16px 的空隙。
   local buttonY = ROW_TOP + math.max(#ROWS_A, #ROWS_B) * ROW_H + 16
   local buttonH, gap, rowGap = 32, 14, 18
-  local buttonW = math.floor((PANEL_W - 48 - gap * 3) / 4)
-  local function buttonX(index) return 24 + (buttonW + gap) * (index - 1) end
-  -- Row 1 carries five toggles; row 2 keeps its original four-column sizes.
-  local row1W = math.floor((PANEL_W - 48 - gap * 4) / 5)
-  local function row1X(index) return 24 + (row1W + gap) * (index - 1) end
+  -- 两行都是六个等宽的格子。
+  local colW = math.floor((PANEL_W - 48 - gap * 5) / 6)
+  local function colX(index) return 24 + (colW + gap) * (index - 1) end
   local toggles = {
-    { key = 'FollowCharacter', idOn = 'btn.followOn', idOff = 'btn.followOff',
+    { key = 'FollowCharacter', idOn = 'btn.followOn', idOff = 'btn.followOff', tip = 'tip.follow',
       get = function() return self.S.FollowCharacter end, set = function(v) self.S.FollowCharacter = v end },
-    { key = 'ShowGhost', idOn = 'btn.ghostOn', idOff = 'btn.ghostOff',
+    { key = 'ShowGhost', idOn = 'btn.ghostOn', idOff = 'btn.ghostOff', tip = 'tip.ghost',
       get = function() return self.S.ShowGhost end, set = function(v) self.S.ShowGhost = v end },
-    { key = 'ShowTip', idOn = 'btn.tipOn', idOff = 'btn.tipOff',
+    { key = 'ShowTip', idOn = 'btn.tipOn', idOff = 'btn.tipOff', tip = 'tip.tip',
       get = function() return self.S.ShowTip end, set = function(v) self.S.ShowTip = v end },
-    { key = 'MedicineHud', idOn = 'btn.medicineOn', idOff = 'btn.medicineOff',
+    { key = 'MedicineHud', idOn = 'btn.medicineOn', idOff = 'btn.medicineOff', tip = 'tip.medicine',
       get = function() return self.S.MedicineHud end, set = function(v) self.S.MedicineHud = v end },
-    { key = 'UltHud', idOn = 'btn.ultOn', idOff = 'btn.ultOff',
+    { key = 'UltHud', idOn = 'btn.ultOn', idOff = 'btn.ultOff', tip = 'tip.ult',
       get = function() return self.S.UltHud end, set = function(v) self.S.UltHud = v end },
+    { key = 'PinHudBars', idOn = 'btn.pinBarsOn', idOff = 'btn.pinBarsOff', tip = 'tip.pinBars',
+      get = function() return self.S.PinHudBars end,
+      -- 只固定而不显示读数从来不是这个开关的本意，所以它会顺手把
+      -- 数字也打开；之后数字开关仍可单独设置。
+      set = function(v)
+        self.S.PinHudBars = v
+        if v then self.S.HudNumbers = true end
+        self:refreshAllButtons()
+      end },
   }
   for index, def in ipairs(toggles) do
-    local button = self:buildButton(panel, tree, row1X(index), buttonY,
-      row1W, buttonH, def.key, def.idOn)
+    local button = self:buildButton(panel, tree, colX(index), buttonY,
+      colW, buttonH, def.key, def.idOn)
     if button then self:wireToggle(button, def) end
   end
 
@@ -707,8 +768,9 @@ function Menu:build()
 
   self:buildDropdown(panel, tree, {
     key = 'Visibility',
-    x = buttonX(1), y = row2, w = buttonW, h = buttonH,
+    x = colX(1), y = row2, w = colW, h = buttonH,
     up = true,
+    tip = 'tip.visibility',
     options = {
       { value = 'always', id = 'btn.visibilityAlways' },
       { value = 'hud', id = 'btn.visibilityHud' },
@@ -728,12 +790,14 @@ function Menu:build()
 
   self:buildDropdown(panel, tree, {
     key = 'DisplayMode',
-    x = buttonX(2), y = row2, w = buttonW, h = buttonH,
+    x = colX(2), y = row2, w = colW, h = buttonH,
     up = true,
+    tip = 'tip.display',
     options = {
       { value = 'both', id = 'btn.displayBoth' },
       { value = 'hp', id = 'btn.displayHp' },
       { value = 'qi', id = 'btn.displayQi' },
+      { value = 'off', id = 'btn.displayOff' },
     },
     value = function() return tostring(self.S.DisplayMode or 'both'):lower() end,
     set = function(value)
@@ -743,22 +807,52 @@ function Menu:build()
     text = function()
       local mode = tostring(self.S.DisplayMode or 'both'):lower()
       return self:t((mode == 'hp' and 'btn.displayHp')
-        or (mode == 'qi' and 'btn.displayQi') or 'btn.displayBoth')
+        or (mode == 'qi' and 'btn.displayQi')
+        or (mode == 'off' and 'btn.displayOff') or 'btn.displayBoth')
     end,
   })
 
-  local hpButton = self:buildButton(panel, tree, buttonX(3), row2, buttonW, buttonH,
+  local hpButton = self:buildButton(panel, tree, colX(3), row2, colW, buttonH,
     'HpOnLeft', 'btn.hpLeftOn')
   if hpButton then
     self:wireToggle(hpButton, {
-      key = 'HpOnLeft', idOn = 'btn.hpLeftOn', idOff = 'btn.hpLeftOff',
+      key = 'HpOnLeft', idOn = 'btn.hpLeftOn', idOff = 'btn.hpLeftOff', tip = 'tip.hpLeft',
       get = function() return self.S.HpOnLeft end, set = function(v) self.S.HpOnLeft = v end,
     })
   end
-  self:buildButton(panel, tree, buttonX(4), row2, buttonW, buttonH, 'Reset', 'btn.reset')
+  local numButton = self:buildButton(panel, tree, colX(4), row2, colW, buttonH,
+    'HudNumbers', 'btn.numbersOn')
+  if numButton then
+    self:wireToggle(numButton, {
+      key = 'HudNumbers', idOn = 'btn.numbersOn', idOff = 'btn.numbersOff', tip = 'tip.numbers',
+      get = function() return self.S.HudNumbers end,
+      set = function(v) self.S.HudNumbers = v end,
+    })
+  end
+  -- 数字绘制的位置：在条的上方和下方，或在条内部。
+  self:buildDropdown(panel, tree, {
+    key = 'HudNumberStyle',
+    x = colX(5), y = row2, w = colW, h = buttonH,
+    up = true,
+    tip = 'tip.numStyle',
+    options = {
+      { value = 'side', id = 'btn.numStyleSide' },
+      { value = 'center', id = 'btn.numStyleCenter' },
+    },
+    value = function() return tostring(self.S.HudNumberStyle or 'side'):lower() end,
+    set = function(value)
+      self.S.HudNumberStyle = value
+      self:changed('HudNumberStyle')
+    end,
+    text = function()
+      local style = tostring(self.S.HudNumberStyle or 'side'):lower()
+      return self:t(style == 'center' and 'btn.numStyleCenter' or 'btn.numStyleSide')
+    end,
+  })
+  self:buildButton(panel, tree, colX(6), row2, colW, buttonH, 'Reset', 'btn.reset')
 
-  -- Language picker lives in the top-right corner, above the menu grid.
-  local langW, langH = 96, 26
+  -- 语言选择器在右上角，位于菜单网格上方。
+  local langW, langH = 115, 26
   local langX, langY = PANEL_W - 24 - langW, 12
   local langLabel = addText(tree, panel, 'PBZArcs_MenuLangLabel', self:t('label.lang'),
     langX - 94, langY + 2, 86, 22, 14, WHITE, 1)
@@ -769,8 +863,9 @@ function Menu:build()
   self:buildDropdown(panel, tree, {
     key = 'Lang',
     x = langX, y = langY, w = langW, h = langH,
-    -- Rows come from languages.ini and each file's own lang.name, so a new language
-    -- only needs a file and one line in that list.
+    tip = 'tip.lang',
+    -- 选项行来自 languages.ini 和每个文件自己的 lang.name，所以新增一种语言
+    -- 只需要一个文件加上在那个列表里的一行。
     optionsFor = function() return Lang.options() end,
     value = function() return self.S.Lang end,
     set = function(value)
@@ -780,15 +875,16 @@ function Menu:build()
     text = function() return Lang.nameFor(self.S.Lang) end,
   })
 
-  -- Preset picker and its two buttons, to the left of the language area. The rows
-  -- show the names from preset/*.ini exactly as the player wrote them, while the
-  -- value kept in settings.ini is the file name, so a rename cannot lose the match.
+  -- 预设选择器及其两个按钮，位于语言区的左侧。选项行
+  -- 完全按玩家写的样子显示 preset/*.ini 里的名字，而
+  -- settings.ini 里保留的值是文件名，所以改名不会丢失对应关系。
   local presetW, smallW, smallGap = 150, 56, 8
   local saveX = langX - 94 - 40 - smallW * 2 - smallGap
   self:buildDropdown(panel, tree, {
     key = 'Preset',
     x = saveX - 10 - presetW, y = langY, w = presetW, h = langH,
     up = true,
+    tip = 'tip.preset',
     optionsFor = function()
       local options = {}
       for _, preset in ipairs(self:presetList()) do
@@ -802,30 +898,32 @@ function Menu:build()
   })
 
   local presetButtons = {
-    { key = 'PresetSave', id = 'btn.presetSave', run = 'saveCurrentPreset' },
-    { key = 'PresetNew', id = 'btn.presetNew', run = 'createPreset' },
+    { key = 'PresetSave', id = 'btn.presetSave', tip = 'tip.presetSave', run = 'saveCurrentPreset' },
+    { key = 'PresetNew', id = 'btn.presetNew', tip = 'tip.presetNew', run = 'createPreset' },
   }
   for index, def in ipairs(presetButtons) do
     local button = self:buildButton(panel, tree, saveX + (smallW + smallGap) * (index - 1),
       langY, smallW, langH, def.key, def.id)
     if button then
+      button.tip = def.tip
       pcall(function() button.text.Justification = 1 end)
       button.action = function() self[def.run](self) end
     end
   end
 
-  -- Wire the non-boolean buttons.
+  -- 连接非布尔按钮。
   for _, button in ipairs(self.buttons) do
     if button.key == 'Reset' then
+      button.tip = 'tip.reset'
       -- 恢复默认回到当前预设存的值，不是出厂默认值。
       button.action = function() self:applyPreset(self.S.Preset) end
     end
   end
 
-  -- The game keeps bShowMouseCursor false during gameplay. The reflected flag
-  -- still accepts a direct write, and the engine then draws its normal arrow
-  -- cursor, so hold it true while the menu is open. Only if that write fails do
-  -- we fall back to a painted crosshair.
+  -- 游戏在游玩过程中把 bShowMouseCursor 保持为 false。这个反射标志
+  -- 仍然接受直接写入，之后引擎就会画出它正常的箭头
+  -- 光标，所以菜单打开期间一直把它置为 true。只有写入失败时
+  -- 才退回自己画的十字准星。
   local pc = playerController()
   self.cursorFallback = not (valid(pc) and pcall(function() pc.bShowMouseCursor = true end))
   if self.cursorFallback then
@@ -845,17 +943,17 @@ function Menu:build()
     self.callbacks.log('cursor: system=' .. tostring(not self.cursorFallback))
   end
 
-  -- An empty button stretched over the whole viewport, above the panel but below
-  -- the drawn cursor. UMG keeps mouse capture between press and release, so polling
-  -- it turns a click edge into a real hold; the menu hit-tests in Lua, so nothing
-  -- below it needs to receive the event.
+  -- 一个铺满整个视口的空按钮，在面板之上、自绘光标
+  -- 之下。UMG 会在按下与抬起之间保持鼠标捕获，所以轮询它
+  -- 就能把一次点击边沿变成真正的按住；菜单在 Lua 里做命中测试，
+  -- 因此它下面的东西不需要接收这个事件。
   self.capture = nil
   local capture = StaticConstructObject(cls(CLASS.button), tree, FName('PBZArcs_MenuCapture_' .. suffix))
   if valid(capture) then
-    -- Zero render opacity, not a tinted colour: SetColorAndOpacity only tints the
-    -- button's content, and the game's UI theme gives the button a solid brush, so
-    -- a tinted button fills the screen with white. Skipping the paint pass still
-    -- leaves the widget in the hit-test path, which is all we need from it.
+    -- 用零渲染不透明度，而不是染色：SetColorAndOpacity 只会给
+    -- 按钮的内容染色，而游戏的 UI 主题给按钮一个实心笔刷，所以
+    -- 染色的按钮会把整个屏幕填成白色。跳过绘制过程仍然
+    -- 会把该控件留在命中测试路径里，而这正是我们需要它做的。
     pcall(function() capture:SetRenderOpacity(0) end)
     pcall(function()
       capture.bHoverEffectActivated = false
@@ -876,9 +974,9 @@ function Menu:build()
   self:refreshAllRows()
   self:refreshAllButtons()
 
-  -- The dim gets its own viewport widget. Inside the menu canvas it would sit at
-  -- the menu's z-order, above the arcs and the icon readouts, and wash them out.
-  -- A failure here only loses the dimming, so it stays inside pcall.
+  -- 遮罩有自己独立的视口控件。放在菜单 canvas 里的话它会处在
+  -- 菜单的 z 序上，压住弧形和图标读数，把它们冲淡。
+  -- 这里失败最多只是没有遮罩，所以一直留在 pcall 里。
   pcall(function()
     local dimRoot = StaticConstructObject(cls(CLASS.user), gi, FName('PBZArcs_MenuDim_' .. suffix))
     local dimTree = StaticConstructObject(cls(CLASS.tree), dimRoot, FName('PBZArcs_MenuDimTree_' .. suffix))
@@ -947,6 +1045,134 @@ function Menu:refreshAllRows()
   for _, row in ipairs(self.rows) do self:refreshRow(row) end
 end
 
+---------------------------------------------------------------------------------------------------
+-- 悬停提示与中键重置
+
+-- 按提示文本在字号 12 下的实际绘制量测：一个拉丁字符约 7.4 slate 宽，
+-- 一个中文字符约 14.5（三个字节，每个 4.85）。
+local TIP_ASCII, TIP_CJK_BYTE = 7.4, 4.85
+
+local function textWidth(text)
+  local ascii = select(2, text:gsub('[\1-\127]', ''))
+  local high = #text - ascii
+  return ascii * TIP_ASCII + high * TIP_CJK_BYTE
+end
+
+-- 把提示硬拆成每行最多 `budget` slate 像素的多行。拉丁单词保持
+-- 完整；中文可以在任意处断开。最宽的那一行就是框最终的宽度。
+local function breakLines(text, budget)
+  local tokens = {}
+  local i, n = 1, #text
+  while i <= n do
+    local byte = text:byte(i)
+    if byte == 32 then
+      tokens[#tokens + 1] = { text = ' ', width = TIP_ASCII }
+      i = i + 1
+    elseif byte < 128 then
+      local j = i
+      while j <= n and text:byte(j) ~= 32 and text:byte(j) < 128 do j = j + 1 end
+      local word = text:sub(i, j - 1)
+      tokens[#tokens + 1] = { text = word, width = #word * TIP_ASCII }
+      i = j
+    else
+      local length = byte >= 240 and 4 or (byte >= 224 and 3 or 2)
+      tokens[#tokens + 1] = { text = text:sub(i, i + length - 1), width = length * TIP_CJK_BYTE }
+      i = i + length
+    end
+  end
+  local lines, line, width = {}, '', 0
+  for _, token in ipairs(tokens) do
+    if line ~= '' and width + token.width > budget then
+      lines[#lines + 1] = line
+      if token.text == ' ' then
+        line, width = '', 0
+      else
+        line, width = token.text, token.width
+      end
+    else
+      line = line .. token.text
+      width = width + token.width
+    end
+  end
+  if line ~= '' then lines[#lines + 1] = line end
+  return table.concat(lines, '\n'), math.max(1, #lines)
+end
+
+function Menu:refreshTooltip(tipKey)
+  if tipKey == self.tipKey then return end
+  self.tipKey = tipKey
+  if not valid(self.tipRoot) then return end
+  local text = tipKey ~= nil and self:t(tipKey) or nil
+  if text == nil or text == '' or text == tipKey then
+    pcall(function() self.tipRoot:SetVisibility(1) end)
+    return
+  end
+  local body, count = breakLines(text, TIP_WRAP)
+  pcall(function() self.tipText:SetText(FText(body)) end)
+  local widest = 0
+  for line in body:gmatch('[^\n]+') do
+    widest = math.max(widest, textWidth(line))
+  end
+  self.tipW = math.floor(widest) + 18
+  self.tipH = count * 19 + 13
+  pcall(function() self.tipRoot:SetVisibility(3) end)
+end
+
+function Menu:placeTooltip(lx, ly)
+  if self.tipKey == nil or not valid(self.tipRoot) then return end
+  local w, h = self.tipW or 240, self.tipH or 30
+  local tx, ty = lx + 18, ly + 18
+  if tx + w > PANEL_W - 8 then tx = math.max(8, lx - w - 12) end
+  if ty + h > PANEL_H - 8 then ty = math.max(8, ly - h - 12) end
+  pcall(function() self.tipRoot:SetRenderTranslation({ X = tx, Y = ty }) end)
+end
+
+-- 指针下的滑块行。标签算作该行的一部分，
+-- 另一列和页边距不算。
+function Menu:rowAtMouse()
+  local x, y = self.mouseX, self.mouseY
+  if x == nil or y == nil then return nil end
+  local lx, ly = x - self.panelX, y - self.panelY
+  for _, row in ipairs(self.rows) do
+    if ly >= row.y and ly <= row.y + ROW_H
+      and lx >= row.labelX and lx <= row.valueX + 54 then
+      return row
+    end
+  end
+  return nil
+end
+
+function Menu:resetRow(row)
+  -- 单行回到当前预设保存的值，也就是 Reset 按钮
+  -- 对所有行做的事；内置默认值只用来顶替
+  -- 预设文件早于其存在的那个键。
+  local preset = Config.presetByKey(self:presetList(), self.S.Preset)
+  local default = preset and preset.values and preset.values[row.def.key]
+  if default == nil then default = Config.DEFAULTS[row.def.key] end
+  if default == nil then return end
+  if row.def.colour then
+    -- 三个通道滑块对应同一个颜色，所以任意一个都会重置全部三个。
+    self.S[row.def.key] = Config.normalizeHex(default, self.S[row.def.key])
+  else
+    rowSet(self.S, row.def, tonumber(default) or row.def.min)
+  end
+  for _, other in ipairs(self.rows) do
+    if other.def.key == row.def.key then self:refreshRow(other) end
+  end
+  self:changed(row.def.key)
+end
+
+function Menu:middleClick()
+  if not self.open then return false end
+  for _, dd in ipairs(self.dropdowns or {}) do
+    if dd.open then return false end
+  end
+  local row = self:rowAtMouse()
+  if row == nil then return false end
+  self:resetRow(row)
+  return true
+end
+
 function Menu:refreshLanguage()
   for _, item in ipairs(self.labels) do
     if item.id then
@@ -957,6 +1183,7 @@ function Menu:refreshLanguage()
   for _, dd in ipairs(self.dropdowns or {}) do
     if dd.open then self:refreshDropdown(dd) end
   end
+  self:refreshTooltip(nil)
 end
 
 function Menu:setInput(open)
@@ -998,10 +1225,10 @@ function Menu:mouse()
 end
 
 ---------------------------------------------------------------------------------------------------
--- Button hold state. A UE4SS keybind only fires on the press edge, so "is the
--- button still down" has to come from the engine: the capture button reports the
--- left mouse button, IsInputKeyDown is tried for the rest. Either may be unusable
--- in this build, in which case held() returns nil and callers keep their fallback.
+-- 按钮按住状态。UE4SS 的按键绑定只在按下沿触发一次，所以「按钮是否
+-- 还按着」必须从引擎获取：捕获按钮负责报告鼠标左键，
+-- 其余按键则尝试 IsInputKeyDown。两者在这个版本里都可能不可用，
+-- 那样 held() 返回 nil，调用方保持自己的兜底方案。
 
 local KEY_NAMES = { lmb = 'LeftMouseButton', rmb = 'RightMouseButton', mmb = 'MiddleMouseButton' }
 local fkeyCache = {}
@@ -1018,6 +1245,7 @@ local function fkeyArg(name)
 end
 
 function Menu:probeLog(message)
+  if not self.S.Debug then return end
   self.probeSeen = self.probeSeen or {}
   if self.probeSeen[message] then return end
   self.probeSeen[message] = true
@@ -1042,7 +1270,7 @@ function Menu:keyDown(name)
   return down == true
 end
 
--- button is 'lmb' / 'rmb' / 'mmb'.
+-- button 为 'lmb' / 'rmb' / 'mmb'。
 function Menu:held(button)
   if button == 'lmb' and valid(self.capture) then
     local ok, down = pcall(function() return self.capture:IsPressed() end)
@@ -1053,10 +1281,10 @@ end
 
 local HOLD_GRACE = 0.25
 
--- Called once a frame while a drag runs. The press edge proves the button is down,
--- so the first frame that reports a real "down" tells us the source can also be
--- trusted to report the release; if none ever does, this build cannot tell and the
--- caller keeps its cursor-stillness fallback.
+-- 拖动进行期间每帧调用一次。按下沿已经证明按钮是按下的，
+-- 所以第一个报告出真正「按下」的帧说明这个来源也可以被信任去
+-- 报告抬起；如果始终没有，就说明这个版本判断不了，调用方
+-- 保持用光标静止来判断的兜底方案。
 function Menu:checkHold(state, dt)
   local down = self:held(state.button)
   if state.reliable == nil then
@@ -1075,22 +1303,22 @@ function Menu:checkHold(state, dt)
   return nil
 end
 
--- Used by the draggable HUD readouts so a click on the panel is never stolen.
+-- 供可拖动的 HUD 读数使用，这样点在面板上的点击永远不会被抢走。
 function Menu:hitPanel(x, y)
   if not self.open or x == nil or y == nil then return false end
   local lx, ly = x - self.panelX, y - self.panelY
   return lx >= 0 and lx <= PANEL_W and ly >= 0 and ly <= PANEL_H
 end
 
--- A viewport widget has no way to change its z-order in place, so the panel is
--- pulled out and put back; the row widgets survive the round trip.
+-- 视口控件没法原地改 z 序，所以把面板摘下再放回去；
+-- 行控件在这次往返中会保留下来。
 function Menu:setViewportZ(z)
   if self.viewportZ == z or not valid(self.root) then return end
   local ok = pcall(function()
     self.root:RemoveFromParent()
     self.root:AddToViewport(z)
   end)
-  -- nil on failure makes the next poll put the panel back on the viewport.
+  -- 失败时置为 nil，让下一次轮询把面板重新放回视口。
   self.viewportZ = ok and z or nil
 end
 
@@ -1137,8 +1365,8 @@ function Menu:click()
     if lx >= button.x and lx <= button.x + button.w and ly >= button.y and ly <= button.y + button.h then
       if button.action then
         local ok, err = pcall(button.action)
-        if not ok and self.callbacks.log then
-          self.callbacks.log('menu action ' .. tostring(button.key) .. ': ' .. tostring(err))
+        if not ok and self.callbacks.alert then
+          self.callbacks.alert('menu action ' .. tostring(button.key) .. ': ' .. tostring(err))
         end
       end
       return
@@ -1157,13 +1385,14 @@ function Menu:click()
 end
 
 function Menu:updatePointer(x, y)
+  self.mouseX, self.mouseY = x, y
   local lx, ly = x - self.panelX, y - self.panelY
   local moved = self.pointerX == nil
     or math.abs(self.pointerX - x) > 0.01 or math.abs(self.pointerY - y) > 0.01
   if moved and self.cursorH ~= nil then
     self.pointerX, self.pointerY = x, y
-    -- Render translation skips the canvas layout pass that slot SetPosition runs.
-    -- The cursor is parented to the full-screen canvas, so it shows over the whole window.
+    -- 渲染平移会跳过 slot 的 SetPosition 所触发的 canvas 布局。
+    -- 光标挂在全屏 canvas 下，因此在整个窗口上都可见。
     local cx, cy = math.floor(x + 0.5), math.floor(y + 0.5)
     local ok = pcall(function()
       self.cursorH:SetRenderTranslation({ X = cx - 11, Y = cy - 1 })
@@ -1222,16 +1451,34 @@ function Menu:updatePointer(x, y)
       self:refreshButton(hoverButton)
     end
   end
+
+  -- 同一时间只显示一条提示，位置在指针所在控件之上。打开的下拉框会盖住
+  -- 它下面的控件，滑块拖动又占用了指针，所以这两种情况都会把提示藏起来。
+  local tipKey = nil
+  local dropdownOpen = false
+  for _, dd in ipairs(self.dropdowns or {}) do
+    if dd.open then dropdownOpen = true; break end
+  end
+  if inside and not dropdownOpen and self.dragRow == nil then
+    if hoverButton ~= nil then
+      tipKey = hoverButton.tip
+    else
+      local row = self:rowAtMouse()
+      tipKey = row and row.tip or nil
+    end
+  end
+  self:refreshTooltip(tipKey)
+  if tipKey ~= nil then self:placeTooltip(lx, ly) end
 end
 
--- The game clears the hardware cursor during gameplay. Re-assert it every frame
--- while the menu owns input, so the normal arrow follows the mouse.
+-- 游戏在游玩过程中会清掉硬件光标。菜单占有输入期间每帧重新
+-- 置位，好让正常的箭头跟随鼠标。
 function Menu:assertCursor()
   local pc = playerController()
   if not valid(pc) then return end
-  -- PlayerController:SetShowMouseCursor is not exposed to Lua in this build,
-  -- but the flag itself is a reflected property. The game clears it, so keep
-  -- setting it while the menu owns input.
+  -- 在这个版本里 PlayerController:SetShowMouseCursor 没有暴露给 Lua，
+  -- 但这个标志本身是反射属性。游戏会清掉它，所以菜单占有
+  -- 输入期间一直重新设置。
   local okSet = pcall(function() pc.bShowMouseCursor = true end)
   if self.S.Debug and not self.cursorLogged and self.callbacks.log then
     self.cursorLogged = true
@@ -1247,9 +1494,9 @@ function Menu:poll(dt, keepLow)
   local x, y = self:mouse()
   if x == nil then return end
   self:updatePointer(x, y)
-  -- A panel on top of the readouts hides them, a panel under the readouts loses the
-  -- mouse, so it only rises while the pointer is inside it. An icon drag and a
-  -- slider drag in progress keep the panel where it is.
+  -- 面板压在读数之上会遮住它们，压在读数之下又收不到
+  -- 鼠标，所以只有当指针在面板内时它才升高。图标拖动和
+  -- 进行中的滑块拖动会让面板保持原位。
   if self.dragRow == nil and not keepLow then
     self:setViewportZ(self:hitPanel(x, y) and MENU_TOP_Z or MENU_Z)
   end
@@ -1266,7 +1513,7 @@ function Menu:poll(dt, keepLow)
       self.stillTime = 0
       self:applyAt(self.dragRow, x)
     elseif held == nil and self.dragHold.reliable ~= nil then
-      -- Nothing here reports the release; a still cursor ends the drag.
+      -- 这里没有任何东西报告抬起；光标静止即结束拖动。
       self.stillTime = self.stillTime + (tonumber(dt) or 0.016)
       if self.stillTime > 0.12 then
         self.dragRow, self.dragHold = nil, nil
@@ -1288,7 +1535,7 @@ function Menu:toggle()
   else
     local ok, err = pcall(function() return self:build() end)
     if not ok or err == false then
-      if self.callbacks.log then self.callbacks.log('menu build failed: ' .. tostring(err)) end
+      if self.callbacks.alert then self.callbacks.alert('menu build failed: ' .. tostring(err)) end
     end
   end
 end
@@ -1312,6 +1559,10 @@ function Menu:destroy()
   self.cursorH, self.cursorHSlot, self.cursorV, self.cursorVSlot = nil, nil, nil, nil
   self.hoverRow, self.hoverButton = nil, nil
   self.pointerX, self.pointerY = nil, nil
+  self.mouseX, self.mouseY = nil, nil
+  self.tipRoot, self.tipBg, self.tipBgSlot = nil, nil, nil
+  self.tipText, self.tipKey = nil, nil
+  self.tipW, self.tipH = nil, nil
   self.dropdowns = {}
   self.cursorLogged = nil
   self.stillTime = 0

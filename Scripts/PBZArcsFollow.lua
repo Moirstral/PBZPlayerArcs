@@ -1,4 +1,4 @@
--- PBZPlayerArcs: project the player pawn to Slate coordinates and smooth the anchor.
+-- PBZPlayerArcs：把玩家 Pawn 投影到 Slate 坐标，并对锚点做平滑。
 local Follow = {}
 Follow.__index = Follow
 
@@ -21,6 +21,11 @@ local function prop(object, name)
   if ok then return value end
   return nil
 end
+
+-- 相机从角色右肩上方看过去，所以 actor 原点会落在弧线视觉中心稍偏右的位置。
+-- 这个基准修正值以 1080p 像素为单位，并像 AnchorOffsetX 一样缩放；
+-- 滑块本身仍然只作微调。
+local BASE_OFFSET_X = -10
 
 local function finite(value)
   return type(value) == 'number' and value == value and math.abs(value) < 1e9
@@ -170,6 +175,10 @@ function Follow:update(snapshot, dt)
   if not projected then
     targetX = viewport.w * (tonumber(S.FixedAnchorX) or 0.5)
     targetY = viewport.h * (tonumber(S.FixedAnchorY) or 0.55)
+  else
+    -- 只有投影得到的锚点需要这项相机修正；固定锚点就是一个明确的屏幕比例，
+    -- 说在哪就停在哪。
+    targetX = targetX + BASE_OFFSET_X * scale
   end
   targetX = targetX + (tonumber(S.AnchorOffsetX) or 0) * scale
   targetY = targetY + (tonumber(S.AnchorOffsetY) or 0) * scale
