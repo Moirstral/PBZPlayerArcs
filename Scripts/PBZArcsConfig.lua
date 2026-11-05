@@ -35,15 +35,15 @@ local DEFAULTS = {
   AnchorOffsetY = 0,
 
   -- 弧形几何（1080p 基准像素 / 角度）
-  Radius = 180,
-  Thickness = 16,
-  ArcSpan = 90,
-  Segments = 64,
+  Radius = 195,
+  Thickness = 12,
+  ArcSpan = 60,
+  Segments = 45,
   HpOnLeft = true,
   BrushJitter = 0,
 
   -- 外观
-  BarOpacity = 1.00,
+  BarOpacity = 0.75,
   TrackOpacity = 0.45,
   GhostOpacity = 0.55,
   GhostSpeed = 0.35,        -- 秒
@@ -83,10 +83,10 @@ local DEFAULTS = {
   UltChargeBar = true,      -- 精纯杀气图标本体的充能填充
 
   -- 原生血条 / 杀气条（游戏自带的左下角条）
-  PinHudBars = false,       -- 把它们固定为固定长度并显示当前 / 最大值
+  PinHudBars = true,        -- 把两条固定为游戏最初设定的长度
   HudBarWidth = -1,         -- 固定宽度，单位为 slate 像素；-1 = 游戏给这条设定的长度
-  HudNumbers = false,       -- 在游戏的条上显示当前 / 最大值；是否固定都能用
-  HudNumberStyle = 'side',  -- side = 在条的上方 / 下方，center = 在条内部
+  HudNumbers = true,        -- 在游戏的条上显示当前 / 最大值；是否固定都能用
+  HudNumberStyle = 'center', -- side = 在条的上方 / 下方，center = 在条内部
 
   -- 按键 / 菜单
   MenuKey = 'F2',
@@ -99,7 +99,7 @@ local DEFAULTS = {
   TipTexture = '/Game/PBZContent/UI/Hud/Art/Hud_Blood_End.Hud_Blood_End',
 
   -- 墨迹笔画
-  StrokeOverlap = 10,       -- 每一份笔刷副本绘制多少个段长
+  StrokeOverlap = 9.5,      -- 每一份笔刷副本绘制多少个段长
 
   Debug = false,
 }
@@ -284,8 +284,8 @@ function Config.sanitize(S)
   S.ArcSpan = clamp(tonumber(S.ArcSpan) or DEFAULTS.ArcSpan, 30, 180)
   S.Segments = clamp(math.floor((tonumber(S.Segments) or DEFAULTS.Segments) + 0.5), 8, 96)
   S.BrushJitter = clamp(tonumber(S.BrushJitter) or DEFAULTS.BrushJitter, 0, 1)
-  S.StrokeOverlap = clamp(tonumber(S.StrokeOverlap) or 10, 1, 24)
-  S.BarOpacity = clamp(tonumber(S.BarOpacity) or 1, 0.05, 1)
+  S.StrokeOverlap = clamp(tonumber(S.StrokeOverlap) or DEFAULTS.StrokeOverlap, 1, 24)
+  S.BarOpacity = clamp(tonumber(S.BarOpacity) or DEFAULTS.BarOpacity, 0.05, 1)
   S.TrackOpacity = clamp(tonumber(S.TrackOpacity) or 0.45, 0, 1)
   S.GhostOpacity = clamp(tonumber(S.GhostOpacity) or 0.55, 0, 1)
   S.GhostSpeed = clamp(tonumber(S.GhostSpeed) or 0.35, 0.01, 3.0)
@@ -339,7 +339,7 @@ function Config.sanitize(S)
   S.UltHud = parseBool(S.UltHud)
   S.PinHudBars = parseBool(S.PinHudBars)
   S.HudNumbers = parseBool(S.HudNumbers)
-  S.HudNumberStyle = tostring(S.HudNumberStyle or 'side'):lower()
+  S.HudNumberStyle = tostring(S.HudNumberStyle or DEFAULTS.HudNumberStyle):lower()
   if S.HudNumberStyle ~= 'center' then S.HudNumberStyle = 'side' end
   S.Debug = parseBool(S.Debug)
   return S

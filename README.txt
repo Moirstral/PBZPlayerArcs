@@ -41,6 +41,7 @@ ESC       菜单打开时保存并关闭菜单；菜单没开时这个键仍然�
 菜单里改动会立刻生效，并在约 0.35 秒后写回文件；
 关闭菜单时也会保存一次。也可以直接在游戏外编辑该文件，重启游戏后生效。
 写回时只替换数值，文件里的中文注释和空行会原样保留。
+settings.ini 最上面是 Lang（菜单语言）和 MenuKey（菜单键），后面才是预设名和各项数值。
 
 菜单右上角是语言下拉框：左边是「语言 / Language」标签，点右侧按钮展开可选语言，
 展开时按钮上的箭头会翻转，选完或点在别处都会收起。
@@ -75,7 +76,8 @@ settings.ini 一样，可以直接在游戏外改。文件里的 Preset 一行�
 当前预设的文件名（例如 preset2，不带 .ini），只按文件名对应，所以改了显示名
 也不会跟丢；文件名对应的预设不存在时，菜单会把它当成还没保存过的新配置。
 
-自带两份：预设 1 = 制作时实际在用的那套配置，预设 2 = 另一套更细的笔触。
+自带两份：预设 1 就是出厂默认配置（settings.ini 的初始值、单项恢复默认用的内置默认值都是它），
+预设 2 = 另一套更细的笔触。
 
 菜单顶部提示里的按键名会跟着 MenuKey 变化：把 MenuKey 改成 F8，提示就显示 F8。
 
@@ -86,7 +88,7 @@ settings.ini 一样，可以直接在游戏外改。文件里的 Preset 一行�
 --------------------------------
 游戏自己左下角的血条和杀气条会随着上限变长，后期越拉越长。打开「固定原生条」后，
 这两条会回到游戏最初给它们设定的长度上，不再变长。
-默认关闭，关着的时候原生条完全不受影响。
+默认打开（预设 1 就是打开状态），关着的时候原生条完全不受影响。
 
 「显示数字」是单独的开关，不固定原生条也能显示，固定的条和游戏原本的条都可以用：
 - 上下显示：血量的数字在条的正上方，杀气的数字在条的正下方，颜色跟随 HpColor / QiColor。
@@ -114,14 +116,14 @@ FixedAnchorX/Y       不跟随时使用的屏幕相对位置（0~1）
 AnchorHeight         读取人物位置时向上抬高的距离（厘米）
 AnchorOffsetX/Y      双弧整体偏移，单位是 1080p 像素
 
-Radius               弧半径，默认 180（越大离身体越远）
-Thickness            笔触粗细，默认 16
-ArcSpan              弧线张开角度，默认 90 度
-Segments             分段数量，默认 64；越多越圆滑，也越耗性能
+Radius               弧半径，默认 195（越大离身体越远）
+Thickness            笔触粗细，默认 12
+ArcSpan              弧线张开角度，默认 60 度
+Segments             分段数量，默认 45；越多越圆滑，也越耗性能
 HpOnLeft             true = 血左杀右；false = 杀左血右
 BrushJitter          笔触的随机抖动，默认 0（边缘最干净）；
                      调大会让每段笔触随机偏移，更像手绘，但弧线边缘会出现细碎毛刺
-StrokeOverlap        每段笔触画成多少倍分段长度，默认 10；
+StrokeOverlap        每段笔触画成多少倍分段长度，默认 9.5；
                      越大相邻段重叠越多、越连贯，越小越能看到一节的接缝
 
 BarOpacity           双弧整体不透明度
@@ -302,6 +304,8 @@ later; the file is also saved once when the menu closes. You can also edit the f
 outside the game, and it takes effect after restarting the game. When writing back,
 only the values are replaced, so the Chinese comments and blank lines in the file are
 kept exactly as they are.
+settings.ini starts with Lang (menu language) and MenuKey (menu key); the preset name
+and the values follow.
 
 In the top-right corner of the menu is the language drop-down: the "语言 / Language"
 label on the left, and the button on the right expands the list of languages. While it
@@ -355,8 +359,9 @@ settings.ini records the file name of the current preset (for example preset2, w
 If no preset exists for that file name, the menu treats it as a configuration that has
 never been saved.
 
-Two presets ship with the mod: preset 1 = the set actually used while the mod was
-being made, preset 2 = another set with finer strokes.
+Two presets ship with the mod: preset 1 is the factory default (it is what settings.ini
+starts with, and what a single item resets to), preset 2 is another set with finer
+strokes.
 
 The key name in the hint at the top of the menu follows MenuKey: set MenuKey to F8 and
 the hint shows F8.
@@ -368,8 +373,8 @@ Pinning the game's own HP / Sha-Chi bars (optional)
 ---------------------------------------------------
 The game's own HP and Sha-Chi bars in the lower-left corner stretch as the maximum
 values grow, getting longer and longer late in the game. Switching on "Pin HUD bars"
-puts both bars back at the length the game itself gives them. It is off by default,
-and while it is off the native bars are completely untouched.
+puts both bars back at the length the game itself gives them. It is on by default
+(preset 1 has it on); while it is off the native bars are completely untouched.
 
 "Show numbers" is a separate switch and works without pinning, on both the pinned bars
 and the game's own:
@@ -402,17 +407,17 @@ FixedAnchorX/Y       Relative screen position used when not following (0-1)
 AnchorHeight         How far to raise the reading above the character position (cm)
 AnchorOffsetX/Y      Overall offset of both arc bars, in 1080p pixels
 
-Radius               Arc radius, default 180 (larger = further from the body)
-Thickness            Stroke thickness, default 16
-ArcSpan              Arc opening angle, default 90 degrees
-Segments             Number of segments, default 64; more is smoother, but costs more
+Radius               Arc radius, default 195 (larger = further from the body)
+Thickness            Stroke thickness, default 12
+ArcSpan              Arc opening angle, default 60 degrees
+Segments             Number of segments, default 45; more is smoother, but costs more
                      performance
 HpOnLeft             true = HP left, Sha-Chi right; false = Sha-Chi left, HP right
 BrushJitter          Random jitter of the brush strokes, default 0 (cleanest edges);
                      raising it randomises each stroke for a more hand-drawn look, at
                      the cost of fine stray hairs along the arc edge
 StrokeOverlap        How many times the segment length each stroke is drawn, default
-                     10; larger overlaps neighbouring strokes for a more continuous
+                     9.5; larger overlaps neighbouring strokes for a more continuous
                      line, smaller makes the joints between segments visible
 
 BarOpacity           Overall opacity of both arc bars
