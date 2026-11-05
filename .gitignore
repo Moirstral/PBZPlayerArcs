@@ -1,0 +1,9 @@
+# 本地测试脚本与截图
+tools/
+backup/
+
+# 打包产物
+release/
+
+# 运行时日志
+*.log
