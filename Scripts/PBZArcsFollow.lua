@@ -10,16 +10,17 @@ local METHODS = {
   { name = 'controller', fn = 'ProjectWorldLocationToScreen', static = false, slate = false },
 }
 
-local function valid(object)
-  if object == nil then return false end
-  local ok, answer = pcall(function() return object:IsValid() end)
-  return ok and answer == true
-end
+local Util = require('PBZArcsUtil')
+local valid, prop = Util.valid, Util.prop
 
-local function prop(object, name)
-  local ok, value = pcall(function() return object[name] end)
-  if ok then return value end
-  return nil
+-- WidgetLayoutLibrary 的类默认对象是引擎内建静态对象，跨 World 常驻；
+-- 每次取视口都要查一次，改成带 valid() 校验的模块级缓存。
+local layoutLibrary = nil
+local function widgetLayoutLibrary()
+  if valid(layoutLibrary) then return layoutLibrary end
+  local lib = StaticFindObject('/Script/UMG.Default__WidgetLayoutLibrary')
+  if valid(lib) then layoutLibrary = lib end
+  return lib
 end
 
 -- 相机从角色右肩上方看过去，所以 actor 原点会落在弧线视觉中心稍偏右的位置。
@@ -60,7 +61,7 @@ function Follow:getViewport(pc)
 
   local okWorld, world = pcall(function() return pc:GetWorld() end)
   if not okWorld then world = nil end
-  local lib = StaticFindObject('/Script/UMG.Default__WidgetLayoutLibrary')
+  local lib = widgetLayoutLibrary()
   local vp, dpi
   if valid(lib) and valid(world) then
     local ok, result = pcall(function() return lib:GetViewportSize(world) end)
@@ -105,16 +106,35 @@ function Follow:project(pc, pawn, viewport)
     end
     return nil, nil
   end
-  local point = { X = x, Y = y, Z = z + (tonumber(self.S.AnchorHeight) or 0) }
+  -- 投影方法一旦选定通常就不再变：order 只在 methodIndex 变化时重建，
+  -- point 则复用同一个表，避免每帧新建两张表。
+  local point = self.point
+  if point == nil then point = {}; self.point = point end
+  point.X, point.Y, point.Z = x, y, z + (tonumber(self.S.AnchorHeight) or 0)
 
-  local order = {}
-  if self.methodIndex then order[#order + 1] = self.methodIndex end
-  for i = 1, #METHODS do
-    if i ~= self.methodIndex then order[#order + 1] = i end
+  if self.order == nil or self.orderFor ~= self.methodIndex then
+    local order = {}
+    if self.methodIndex then order[#order + 1] = self.methodIndex end
+    for i = 1, #METHODS do
+      if i ~= self.methodIndex then order[#order + 1] = i end
+    end
+    self.order, self.orderFor = order, self.methodIndex
   end
+  local order = self.order
   for _, index in ipairs(order) do
     local method = METHODS[index]
-    local object = method.object and StaticFindObject(method.object) or pc
+    local object
+    if method.object then
+      -- 同样是静态 CDO：缓存后每帧省掉最多两次 StaticFindObject。
+      if valid(method.cached) then
+        object = method.cached
+      else
+        object = StaticFindObject(method.object)
+        if valid(object) then method.cached = object end
+      end
+    else
+      object = pc
+    end
     if valid(object) then
       local out = {}
       local ok, result, extra, extra2 = pcall(function()

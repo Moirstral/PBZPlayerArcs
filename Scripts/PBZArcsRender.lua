@@ -23,13 +23,9 @@ local function logSafe(fn, message)
   if fn then pcall(fn, message) end
 end
 
-local function valid(object)
-  if object == nil then return false end
-  local ok, answer = pcall(function() return object:IsValid() end)
-  return ok and answer == true
-end
-
-local function cls(path) return StaticFindObject(path) end
+local Util = require('PBZArcsUtil')
+local valid, cls = Util.valid, Util.cls
+local VIS, Z = Util.VIS, Util.Z
 
 local function loadAsset(paths)
   for _, path in ipairs(paths or {}) do
@@ -126,7 +122,9 @@ local function centredChild(parent, widget, x, y, w, h, z)
   return slot
 end
 
-local function newCanvas(tree, parent, name)
+-- parent 参数原本传进来却从未使用：控件挂在 WidgetTree 下，父级由
+-- addChild 决定，与构造时的 outer 无关。
+local function newCanvas(tree, name)
   local canvas = StaticConstructObject(cls(CLASS.canvas), tree, FName(name))
   return canvas
 end
@@ -161,7 +159,7 @@ end
 function Render:setVisible(segment, visible)
   if segment.visible == visible then return end
   segment.visible = visible
-  pcall(function() segment.widget:SetVisibility(visible and 3 or 1) end)
+  pcall(function() segment.widget:SetVisibility(visible and VIS.HitTestInvisible or VIS.Collapsed) end)
 end
 
 function Render:setAlpha(segment, alpha)
@@ -194,18 +192,18 @@ function Render:createBar(tree, group, name, side, colour, ghostColour, warnColo
   local startAngle = left and (math.rad(180) - math.rad(span) / 2) or (math.rad(span) / 2)
   local endAngle = left and (math.rad(180) + math.rad(span) / 2) or (-math.rad(span) / 2)
 
-  local track = newCanvas(tree, group, name .. '_track')
-  local ghost = newCanvas(tree, group, name .. '_ghost')
-  local fill = newCanvas(tree, group, name .. '_fill')
+  local track = newCanvas(tree, name .. '_track')
+  local ghost = newCanvas(tree, name .. '_ghost')
+  local fill = newCanvas(tree, name .. '_fill')
   local trackSlot = addChild(group, track, 0, 0, radius * 2, radius * 2, 0)
   local ghostSlot = addChild(group, ghost, 0, 0, radius * 2, radius * 2, 1)
   local fillSlot = addChild(group, fill, 0, 0, radius * 2, radius * 2, 2)
   if not (valid(trackSlot) and valid(ghostSlot) and valid(fillSlot)) then
     return nil
   end
-  track:SetVisibility(3)
-  ghost:SetVisibility(3)
-  fill:SetVisibility(3)
+  track:SetVisibility(VIS.HitTestInvisible)
+  ghost:SetVisibility(VIS.HitTestInvisible)
+  fill:SetVisibility(VIS.HitTestInvisible)
 
   local bar = {
     name = name,
@@ -269,7 +267,7 @@ function Render:createBar(tree, group, name, side, colour, ghostColour, warnColo
         local slot = centredChild(fill, tip, 0, 0, tipSize, tipSize * 0.75, 10)
         if valid(slot) then
           bar.tip = { widget = tip, slot = slot, size = tipSize, colour = self.tipColour }
-          pcall(function() tip:SetVisibility(1) end)
+          pcall(function() tip:SetVisibility(VIS.Collapsed) end)
         end
       end
     end
@@ -297,13 +295,13 @@ function Render:build()
   local tree = StaticConstructObject(cls(CLASS.tree), root, FName('PBZArcs_Tree_' .. suffix))
   if not (valid(root) and valid(tree)) then return false, 'cannot create the HUD root' end
   root.WidgetTree = tree
-  local canvas = newCanvas(tree, nil, 'PBZArcs_Canvas_' .. suffix)
+  local canvas = newCanvas(tree, 'PBZArcs_Canvas_' .. suffix)
   tree.RootWidget = canvas
-  root:SetVisibility(3)
+  root:SetVisibility(VIS.HitTestInvisible)
   root:SetRenderOpacity(0)
 
   local radius = math.max(60, tonumber(self.S.Radius) or 150)
-  local group = newCanvas(tree, nil, 'PBZArcs_Group_' .. suffix)
+  local group = newCanvas(tree, 'PBZArcs_Group_' .. suffix)
   local groupSlot = addChild(canvas, group, 0, 0, radius * 2, radius * 2, 0)
   if not valid(groupSlot) then return false, 'cannot create the arc group' end
   group:SetRenderTransformPivot({ X = 0.5, Y = 0.5 })
@@ -351,7 +349,7 @@ function Render:build()
   if not qi then return false, 'cannot create the Sha-Chi arc' end
   self.qiBar = qi
 
-  root:AddToViewport(50)
+  root:AddToViewport(Z.Arcs)
   self.root, self.tree, self.canvas, self.group, self.groupSlot = root, tree, canvas, group, groupSlot
   self.uiScale = nil
   self.anchorX, self.anchorY = nil, nil
@@ -469,7 +467,7 @@ function Render:updateTip(bar, ratio)
   if not visible then
     if bar.tipVisible then
       bar.tipVisible = false
-      pcall(function() bar.tip.widget:SetVisibility(1) end)
+      pcall(function() bar.tip.widget:SetVisibility(VIS.Collapsed) end)
     end
     return
   end
@@ -501,7 +499,7 @@ function Render:updateTip(bar, ratio)
   if not bar.tipVisible then
     pcall(function()
       bar.tip.widget:SetRenderOpacity(1)
-      bar.tip.widget:SetVisibility(3)
+      bar.tip.widget:SetVisibility(VIS.HitTestInvisible)
     end)
     bar.tipVisible = true
   end
@@ -596,14 +594,29 @@ function Render:setBarEnabled(bar, enabled)
   if bar.enabled == enabled then return end
   bar.enabled = enabled
   pcall(function()
-    bar.track:SetVisibility(enabled and 3 or 1)
-    bar.ghost:SetVisibility(enabled and 3 or 1)
-    bar.fill:SetVisibility(enabled and 3 or 1)
+    bar.track:SetVisibility(enabled and VIS.HitTestInvisible or VIS.Collapsed)
+    bar.ghost:SetVisibility(enabled and VIS.HitTestInvisible or VIS.Collapsed)
+    bar.fill:SetVisibility(enabled and VIS.HitTestInvisible or VIS.Collapsed)
   end)
   if not enabled and bar.tip then
     bar.tipVisible = false
-    pcall(function() bar.tip.widget:SetVisibility(1) end)
+    pcall(function() bar.tip.widget:SetVisibility(VIS.Collapsed) end)
   end
+end
+
+-- hp / qi 两条弧线的残影平滑原本是两段逐字重复的代码，抽成一个函数。
+-- 只推进残影值并返回，绘制仍由 updateBar 负责，行为与拆分前逐字一致。
+function Render:ghostRatio(bar, ratio, dt)
+  if bar.ghostRatio == nil then bar.ghostRatio = ratio end
+  local ghost = bar.ghostRatio
+  if ratio >= ghost then
+    ghost = ratio
+  else
+    ghost = ratio + (ghost - ratio) * math.exp(-dt / math.max(0.01, tonumber(self.S.GhostSpeed) or 0.1))
+  end
+  if ghost - ratio < 0.002 then ghost = ratio end
+  bar.ghostRatio = ghost
+  return ghost
 end
 
 function Render:update(snapshot, dt)
@@ -622,25 +635,13 @@ function Render:update(snapshot, dt)
   local showQi = mode == 'both' or mode == 'qi'
   if showHp and snapshot.hp and snapshot.hpMax and snapshot.hpMax > 0 then
     local ratio = snapshot.hp / snapshot.hpMax
-    if self.hpBar.ghostRatio == nil then self.hpBar.ghostRatio = ratio end
-    local ghost = self.hpBar.ghostRatio
-    if ratio >= ghost then ghost = ratio
-    else ghost = ratio + (ghost - ratio) * math.exp(-dt / math.max(0.01, tonumber(self.S.GhostSpeed) or 0.1)) end
-    if ghost - ratio < 0.002 then ghost = ratio end
-    self.hpBar.ghostRatio = ghost
-    self:updateBar(self.hpBar, ratio, ghost, dt)
+    self:updateBar(self.hpBar, ratio, self:ghostRatio(self.hpBar, ratio, dt), dt)
   else
     self:setBarEnabled(self.hpBar, false)
   end
   if showQi and snapshot.qi and snapshot.qiMax and snapshot.qiMax > 0 then
     local ratio = snapshot.qi / snapshot.qiMax
-    if self.qiBar.ghostRatio == nil then self.qiBar.ghostRatio = ratio end
-    local ghost = self.qiBar.ghostRatio
-    if ratio >= ghost then ghost = ratio
-    else ghost = ratio + (ghost - ratio) * math.exp(-dt / math.max(0.01, tonumber(self.S.GhostSpeed) or 0.1)) end
-    if ghost - ratio < 0.002 then ghost = ratio end
-    self.qiBar.ghostRatio = ghost
-    self:updateBar(self.qiBar, ratio, ghost, dt)
+    self:updateBar(self.qiBar, ratio, self:ghostRatio(self.qiBar, ratio, dt), dt)
   else
     self:setBarEnabled(self.qiBar, false)
   end

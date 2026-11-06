@@ -59,26 +59,9 @@ local ULT_ART = {
   bullet = '/Game/PBZContent/VFX/SceneFX/UI/BattleSystem/Assets/T_UI_ShaChiBullet_001_FG.T_UI_ShaChiBullet_001_FG',
 }
 
-local function valid(object)
-  if object == nil then return false end
-  local ok, answer = pcall(function() return object:IsValid() end)
-  return ok and answer == true
-end
-
-local function cls(path) return StaticFindObject(path) end
-
-local function prop(object, name)
-  local ok, value = pcall(function() return object[name] end)
-  if ok then return value end
-  return nil
-end
-
-local function unwrap(value)
-  if value == nil then return nil end
-  local ok, inner = pcall(function() return value:get() end)
-  if ok and inner ~= nil then return inner end
-  return value
-end
+local Util = require('PBZArcsUtil')
+local valid, prop, unwrap, cls = Util.valid, Util.prop, Util.unwrap, Util.cls
+local VIS, Z = Util.VIS, Util.Z
 
 local function fullName(object)
   if not valid(object) then return '?' end
@@ -108,13 +91,6 @@ local function digitsOf(text)
   return tonumber(text:match('%d+'))
 end
 
-local function ownVisible(widget)
-  if not valid(widget) then return false end
-  local ok, value = pcall(function() return widget.Visibility end)
-  if not ok then return true end
-  return value ~= 1 and value ~= 2
-end
-
 -- 槽位可能被它自己的标志隐藏，也可能被游戏为未装备槽位而折叠的
 -- 某一层覆盖物隐藏，所以整条短链都必须一致。
 local function chainVisible(widget)
@@ -122,7 +98,7 @@ local function chainVisible(widget)
   for _ = 1, 6 do
     if not valid(cur) then return false end
     local okV, visibility = pcall(function() return cur.Visibility end)
-    if okV and (visibility == 1 or visibility == 2) then return false end
+    if okV and (visibility == VIS.Collapsed or visibility == VIS.Hidden) then return false end
     local okO, opacity = pcall(function() return cur.RenderOpacity end)
     if okO and type(opacity) == 'number' and opacity <= 0.01 then return false end
     local okP, parent = pcall(function() return cur:GetParent() end)
@@ -300,7 +276,6 @@ function Icons.new(settings, log)
     quickslot = nil,
     weapon = nil,
     bulletNum = nil,
-    probeDone = false,
     staticDrop = 0,
     buildAt = 0,
     scanAt = -1,
@@ -416,8 +391,8 @@ function Icons:createEntry(name, z, canGrey)
     pcall(function() text:RemoveFromParent() end)
     return nil
   end
-  pcall(function() image:SetVisibility(1) end)
-  pcall(function() text:SetVisibility(1) end)
+  pcall(function() image:SetVisibility(VIS.Collapsed) end)
+  pcall(function() text:SetVisibility(VIS.Collapsed) end)
   return {
     image = image,
     imageSlot = imageSlot,
@@ -508,8 +483,8 @@ function Icons:build()
     self:destroy()
     return false
   end
-  root:AddToViewport(55)
-  pcall(function() root:SetVisibility(1) end)
+  root:AddToViewport(Z.Icons)
+  pcall(function() root:SetVisibility(VIS.Collapsed) end)
   self.shownValue = false
   self.log('icons built')
   return true
@@ -581,7 +556,7 @@ function Icons:buildFill(entry, name, z)
     pcall(function() panel:SetClipping(CLIP_TO_BOUNDS) end)
     pcall(function() readBack = panel.Clipping end)
   end
-  pcall(function() panel:SetVisibility(1) end)
+  pcall(function() panel:SetVisibility(VIS.Collapsed) end)
   -- 裁剪是否真的生效只能在游戏里看出来，所以把回读的值
   -- 记录一次；若读到空值，填充会显示成一整个亮色图标。
   self.log(string.format('icons fill clip wrote=%s read=%s', tostring(wrote), tostring(readBack)))
@@ -707,8 +682,15 @@ function Icons:applySlot(entry, state)
     local sc = self:scale()
     entry.iconW = math.max(px(28, sc), math.min(px(64, sc), px(ICON_H * ratio, sc)))
   end
-  pcall(function() entry.image:SetColorAndOpacity(entry.grey and ICON_GREY or ICON_WHITE) end)
-  pcall(function() entry.text:SetText(FText(numText)) end)
+  -- 哨兵保证首次一定写：grey / numText 都可能是 nil，不能用 nil 当「未变」。
+  if entry.greyPainted ~= true or entry.lastGrey ~= entry.grey then
+    entry.greyPainted, entry.lastGrey = true, entry.grey
+    pcall(function() entry.image:SetColorAndOpacity(entry.grey and ICON_GREY or ICON_WHITE) end)
+  end
+  if entry.textPainted ~= true or entry.lastSlotText ~= numText then
+    entry.textPainted, entry.lastSlotText = true, numText
+    pcall(function() entry.text:SetText(FText(numText)) end)
+  end
   self:applyTextColour(entry)
 end
 
@@ -734,41 +716,6 @@ function Icons:applyValue(entry, text, live, iconOn)
     end)
   end
   self:applyTextColour(entry)
-end
-
--- 对原生武器 HUD 的一次性转储。UMG 自己的控件只能画矩形和
--- 贴图，所以带柔和 alpha 渐变的星形必须取自已有资源；这里列出
--- 每个控件以及每个 Image 所用的笔刷，方便复用其中一个。
-function Icons:probeWeapon()
-  if self.probeDone or not valid(self.weapon) then return end
-  self.probeDone = true
-  local tree = unwrap(prop(self.weapon, 'WidgetTree'))
-  local root = valid(tree) and unwrap(prop(tree, 'RootWidget')) or nil
-  if not valid(root) then return end
-  self.log('icons probe: weapon tree')
-  local function walk(node, depth)
-    if depth > 10 then return end
-    local ok, count = pcall(function() return node:GetChildrenCount() end)
-    if not ok or type(count) ~= 'number' then return end
-    for index = 0, count - 1 do
-      local okC, child = pcall(function() return node:GetChildAt(index) end)
-      if okC and valid(child) then
-        local kind = className(child)
-        local label = fullName(child)
-        if kind:find('Image', 1, true) ~= nil then
-          local info = brushInfo(child)
-          if info ~= nil then
-            label = label .. string.format(' brush=%s %sx%s', tostring(info.key),
-              tostring(info.w), tostring(info.h))
-          end
-        end
-        self.log(string.rep('  ', depth) .. '[' .. kind .. '] ' .. label)
-        walk(child, depth + 1)
-      end
-    end
-  end
-  walk(root, 0)
-  self.log('icons probe: end')
 end
 
 function Icons:read()
@@ -800,7 +747,6 @@ function Icons:read()
   local w = self.weapon
   if self.S.UltHud ~= false and #self.ultEntries > 0 then
     if valid(w) then
-      if self.S.Debug then self:probeWeapon() end
       local pureNum = unwrap(prop(w, 'PureShachiNum'))
       if self.ultEntries[1] then
         self:applyValue(self.ultEntries[1], textValue(prop(pureNum, 'Text')),
@@ -964,7 +910,7 @@ function Icons:placeFill(entry, x, y)
   if fillH <= 0 then
     if fill.shown ~= false then
       fill.shown = false
-      pcall(function() fill.panel:SetVisibility(1) end)
+      pcall(function() fill.panel:SetVisibility(VIS.Collapsed) end)
     end
     return
   end
@@ -975,7 +921,7 @@ function Icons:placeFill(entry, x, y)
   local innerY = iconY - panelY
   if fill.shown ~= true then
     fill.shown = true
-    pcall(function() fill.panel:SetVisibility(0) end)
+    pcall(function() fill.panel:SetVisibility(VIS.Visible) end)
     fill.x, fill.y, fill.w, fill.h, fill.innerY = nil, nil, nil, nil, nil
   end
   if fill.x ~= artX or fill.y ~= panelY or fill.w ~= w or fill.h ~= fillH then
@@ -994,10 +940,13 @@ end
 function Icons:placeEntry(entry, gx, gy)
   if not entry.shown then
     if entry.lastPx ~= nil then
-      pcall(function() entry.image:SetVisibility(1) end)
-      pcall(function() entry.text:SetVisibility(1) end)
+      pcall(function() entry.image:SetVisibility(VIS.Collapsed) end)
+      pcall(function() entry.text:SetVisibility(VIS.Collapsed) end)
       entry.lastPx = nil
       entry.lastW = nil
+      entry.lastTx, entry.lastTy = nil, nil
+      entry.lastNumW, entry.lastNumH = nil, nil
+      entry.lastImageVis, entry.lastTextVis = nil, nil
     end
     self:placeFill(entry, 0, 0)
     return
@@ -1017,24 +966,42 @@ function Icons:placeEntry(entry, gx, gy)
       entry.lastW = entry.iconW
       entry.lastH = h
     end
-    pcall(function() entry.image:SetVisibility(0) end)
+    if entry.lastImageVis ~= true then
+      entry.lastImageVis = true
+      pcall(function() entry.image:SetVisibility(VIS.Visible) end)
+    end
     if entry.iconAlpha ~= nil and entry.lastAlpha ~= entry.iconAlpha then
       entry.lastAlpha = entry.iconAlpha
       pcall(function() entry.image:SetRenderOpacity(entry.iconAlpha) end)
     end
   else
-    pcall(function() entry.image:SetVisibility(1) end)
+    if entry.lastImageVis ~= false then
+      entry.lastImageVis = false
+      pcall(function() entry.image:SetVisibility(VIS.Collapsed) end)
+    end
   end
   if entry.numW > 0 and entry.showNum then
     -- entry.numH 保持未缩放的字形像素：渲染轴心是槽位的中线
     -- 高度，所以把槽位在行上居中就能让数字在图标上居中。
     local numH = entry.numH
     local tx = x + (entry.iconW > 0 and (entry.iconW + self.numGap) or 0)
-    pcall(function() entry.textSlot:SetPosition({ X = tx, Y = y + (rowH - numH) / 2 }) end)
-    pcall(function() entry.textSlot:SetSize({ X = entry.numW, Y = numH }) end)
-    pcall(function() entry.text:SetVisibility(0) end)
+    local ty = y + (rowH - numH) / 2
+    if entry.lastTx ~= tx or entry.lastTy ~= ty or entry.lastNumW ~= entry.numW
+      or entry.lastNumH ~= numH then
+      entry.lastTx, entry.lastTy = tx, ty
+      entry.lastNumW, entry.lastNumH = entry.numW, numH
+      pcall(function() entry.textSlot:SetPosition({ X = tx, Y = ty }) end)
+      pcall(function() entry.textSlot:SetSize({ X = entry.numW, Y = numH }) end)
+    end
+    if entry.lastTextVis ~= true then
+      entry.lastTextVis = true
+      pcall(function() entry.text:SetVisibility(VIS.Visible) end)
+    end
   else
-    pcall(function() entry.text:SetVisibility(1) end)
+    if entry.lastTextVis ~= false then
+      entry.lastTextVis = false
+      pcall(function() entry.text:SetVisibility(VIS.Collapsed) end)
+    end
   end
   entry.lastPx, entry.lastPy = x, y
   self:placeFill(entry, x, y)
@@ -1059,7 +1026,7 @@ function Icons:setShown(shown, opacity)
   if valid(self.root) then
     -- 自身不参与命中测试：读数永不拦截鼠标，
     -- 菜单打开时由模块自己做光标命中测试。
-    pcall(function() self.root:SetVisibility(shown and 4 or 1) end)
+    pcall(function() self.root:SetVisibility(shown and VIS.SelfHitTestInvisible or VIS.Collapsed) end)
     pcall(function() self.root:SetRenderOpacity(opacity) end)
   end
 end
@@ -1102,7 +1069,7 @@ function Icons:update(dt, ctx)
   -- 所以这里 dynamic 的行为与 hud 一致。ctx.hudFade 携带 HUD 自身的
   -- 透明度，使渐隐的 HUD 会带着读数一起淡出，而不是让它们
   -- 一直亮着直到 HUD 被报告完全消失。
-  local shown = any and (ctx.menuOpen or (not ctx.uiOpen and ctx.hudShown))
+  local shown = any and (ctx.menuOpen or ctx.hudShown)
   self:setShown(shown, tonumber(ctx.hudFade) or 1)
   self:applyPositions()
 end
@@ -1263,9 +1230,11 @@ function Icons:poll(dt)
     self:endDrag()
     return
   end
-  if not moved and held ~= true then
-    -- 只有在按住探测有了结论之后，才回退到静止光标判断。
-    if held == nil and drag.hold.reliable ~= nil then
+  if not moved then
+    -- 明确按住但光标没动：不重算布局、不写 UMG，也不把 moved 置真。
+    if held == true then
+      self.still = 0
+    elseif held == nil and drag.hold.reliable ~= nil then
       self.still = self.still + (tonumber(dt) or 0.016)
       if self.still > STILL_TIME then self:endDrag() end
     end
@@ -1291,7 +1260,7 @@ function Icons:poll(dt)
       self:setGroupAt(name, origin.x + dx, origin.y + dy)
     end
   end
-  self:applyPositions()
+  -- 拖动只改状态；本帧稍后的 update 会统一摆放，避免同帧写两次。
 end
 
 return Icons

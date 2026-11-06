@@ -63,18 +63,25 @@ lang.name（下拉框显示的就是它），再在 languages.ini 里加一行 f
 菜单右上角、语言栏左边是预设下拉框，显示当前预设名；它右边是「保存」「新建」
 两个小按钮，再往右才是语言栏。
 
-- 下拉框：选一个预设就把那一份设置整套换成当前值，立刻生效并写回 settings.ini。
-- 保存：把当前所有设置写进当前选中的那个预设文件。
-- 新建：用当前设置新建一个预设，名字顺延（预设 3、预设 4…），并切换过去。
-- 恢复默认：恢复成「当前预设」里存的值，不是出厂默认值。单项也可以在滑条上
-  用中键点一下，回到内置默认值。
+- 下拉框：先以出厂默认值为基地，再套用预设文件里写出的差异项，整套换成当前值，
+  立刻生效并写回 settings.ini。预设文件里没写的项一律回到默认值。
+- 保存：只把「与默认值不同」的项写进当前预设文件；改回默认值的项会自动从文件里
+  消失，所以预设文件记录的是一份差异清单，不是完整快照。
+- 新建：用当前设置的差异项新建一个预设，名字顺延（预设 3、预设 4…），并切换过去。
+- 恢复默认：恢复成「当前预设」里存的值（默认值 + 该预设的差异项），不是出厂默认值。
+  单项也可以在滑条上用中键点一下，回到内置默认值。
 
 预设存放在 mod 的 Scripts\preset 文件夹里，一个预设一个文件：preset1.ini、preset2.ini…
-编号必须连续（中间缺一个就到此为止）。每个文件都是完整的一份设置，格式和
-settings.ini 一样，可以直接在游戏外改。文件里的 Preset 一行就是这个预设的名字，
-改成什么菜单里就显示什么，mod 不会改写它。settings.ini 里的 Preset 一行记的是
-当前预设的文件名（例如 preset2，不带 .ini），只按文件名对应，所以改了显示名
-也不会跟丢；文件名对应的预设不存在时，菜单会把它当成还没保存过的新配置。
+编号必须连续（中间缺一个就到此为止）。每个文件只记录相对默认值的差异，格式和
+settings.ini 一样，可以直接在游戏外改，写出的项覆盖默认值。文件里的 Preset 一行
+就是这个预设的名字，改成什么菜单里就显示什么，mod 不会改写它。Lang 和 MenuKey
+属于玩家配置，只存在 settings.ini，预设文件里的同名行会被忽略。settings.ini 里的
+Preset 一行记的是当前预设的文件名（例如 preset2，不带 .ini），只按文件名对应，
+所以改了显示名也不会跟丢；文件名对应的预设不存在时，菜单会把它当成还没保存过的
+新配置。
+
+settings.ini 是例外：游戏内保存时始终写全量（完整的一份设置），方便配置界面打不开
+时直接手改；只有预设文件是差异文件。
 
 自带两份：预设 1 就是出厂默认配置（settings.ini 的初始值、单项恢复默认用的内置默认值都是它），
 预设 2 = 另一套更细的笔触。
@@ -145,7 +152,6 @@ WarnFlashSpeed       闪烁速度（每秒次数）
 WarnFlashAmount      闪烁幅度，0 = 不闪，1 = 完全明暗交替
 
 Visibility           显示时机（菜单里是同名的下拉框）：
-                     always = 常态显示
                      hud = 跟随游戏 HUD 的显示 / 隐藏（过场、菜单时一起淡出）
                      dynamic = 动态隐藏（默认）：血条、杀气条分别判断，
                      某一条满了并持续 HideDelay 秒后隐藏那一条，掉下来立刻恢复；
@@ -190,7 +196,7 @@ Debug                true 时每 5 秒往日志写一行状态，排查问题用
 - 弧线默认跟随人物在屏幕上的投影位置；人物走出屏幕时会隐藏。
 - 如果投影接口不可用，会自动退回到 FixedAnchorX/Y 的固定位置。
 - 显示时机由 Visibility 决定：
-  always = 常态显示；hud = 跟随游戏 HUD 显隐；dynamic = 动态隐藏，血条和杀气条
+  hud = 跟随游戏 HUD 显隐；dynamic = 动态隐藏，血条和杀气条
   各自计时，满值持续 HideDelay 秒后只隐藏那一条，数值掉下来后重新出现，没满时
   仍跟随游戏 HUD 显隐；HUD 本身一隐藏（脱战、过场）弧线和图标就立刻一起隐藏，
   不再等 HideDelay。
@@ -219,8 +225,7 @@ Debug                true 时每 5 秒往日志写一行状态，排查问题用
   打开 F2 菜单后按住左键，所有图标作为一个整体一起移动，
   按住右键只移动指针下的那一个，点一下中键全部图标回到默认位置；松开鼠标后位置
   写回 settings.ini。打开地图、背包、设置或主菜单时不显示。
-- 图标的显隐跟随「显示时机」：always 常显，hud 跟随游戏 HUD；动态隐藏时图标不受
-  「值满隐藏」影响，直接跟随游戏 HUD 显隐。
+- 图标的显隐跟随游戏 HUD；动态隐藏的「值满隐藏」只作用于弧线，不影响图标。
 - 打开 F2 菜单时，弧线和图标排在菜单的暗色遮罩之上，调位置、调大小的同时仍然
   能看清自己的数值；鼠标移进面板时面板才浮到最上层，移出后面板回到弧线和图标之下。
 
@@ -340,24 +345,34 @@ In the top-right corner of the menu, to the left of the language bar, is the pre
 drop-down showing the current preset name; to its right are the two small buttons
 "Save" and "New", and then the language bar.
 
-- Drop-down: picking a preset replaces the whole set of settings with that preset's
-  values; it takes effect immediately and is written back to settings.ini.
-- Save: writes all current settings into the currently selected preset file.
-- New: creates a new preset from the current settings, named in sequence (preset 3,
+- Drop-down: starts from the factory defaults, overlays the differences written in the
+  preset file, and replaces the whole set of settings; it takes effect immediately and
+  is written back to settings.ini. Any key the preset file does not mention reverts to
+  its default value.
+- Save: writes only the entries that differ from the defaults into the currently
+  selected preset file; entries changed back to their default disappear from the file.
+  A preset file is therefore a list of differences, not a full snapshot.
+- New: creates a new preset from the current differences, named in sequence (preset 3,
   preset 4, ...) and switches to it.
-- Reset to default: restores the values stored in the *current preset*, not the
-  factory defaults. A single item can also be reset to its built-in default with a
-  middle click on its slider.
+- Reset to default: restores the values stored in the *current preset* (defaults plus
+  that preset's differences), not the factory defaults. A single item can also be reset
+  to its built-in default with a middle click on its slider.
 
 Presets live in the mod's Scripts\preset folder, one file per preset: preset1.ini,
 preset2.ini, ... The numbering must be contiguous (the list stops at the first gap).
-Each file is a complete set of settings in the same format as settings.ini and can be
-edited outside the game. The Preset line in the file is the preset's name: whatever you
-put there is what the menu shows, and the mod never rewrites it. The Preset line in
-settings.ini records the file name of the current preset (for example preset2, without
-.ini); matching is by file name only, so changing the display name will not lose track.
-If no preset exists for that file name, the menu treats it as a configuration that has
-never been saved.
+Each file records only the differences from the defaults, in the same format as
+settings.ini, and can be edited outside the game; entries written there override the
+defaults. The Preset line in the file is the preset's name: whatever you put there is
+what the menu shows, and the mod never rewrites it. Lang and MenuKey are player settings
+and live only in settings.ini; the same lines in a preset file are ignored. The Preset
+line in settings.ini records the file name of the current preset (for example preset2,
+without .ini); matching is by file name only, so changing the display name will not lose
+track. If no preset exists for that file name, the menu treats it as a configuration
+that has never been saved.
+
+settings.ini is the exception: saving in game always writes every key (a complete set),
+so the file stays hand-editable when the menu itself cannot be opened. Only preset files
+are difference files.
 
 Two presets ship with the mod: preset 1 is the factory default (it is what settings.ini
 starts with, and what a single item resets to), preset 2 is another set with finer
@@ -442,7 +457,6 @@ WarnFlashSpeed       Blink speed (times per second)
 WarnFlashAmount      Blink amount, 0 = no blink, 1 = full bright/dim alternation
 
 Visibility           Display timing (same-named drop-down in the menu):
-                     always = always visible
                      hud = follow the game HUD show/hide (fades out with cutscenes and
                      menus)
                      dynamic = dynamic hiding (default): the HP bar and the Sha-Chi
@@ -504,7 +518,7 @@ Display logic
 - If the projection interface is unavailable, the mod falls back to the fixed position
   from FixedAnchorX/Y.
 - Display timing is decided by Visibility:
-  always = always visible; hud = follow the game HUD show/hide; dynamic = dynamic
+  hud = follow the game HUD show/hide; dynamic = dynamic
   hiding, where the HP bar and the Sha-Chi bar are timed separately, and a bar that
   stays full for HideDelay seconds is the only one hidden, coming back as soon as its
   value drops; while not full they still follow the game HUD, and as soon as the HUD
@@ -546,9 +560,8 @@ Display logic
   moves only the one under the pointer, and a middle click returns all icons to their
   default position; on release the position is written back to settings.ini. They are
   not shown while the map, inventory, settings or main menu is open.
-- Icon visibility follows the display timing: always keeps them visible, hud follows
-  the game HUD; with dynamic hiding the icons are not affected by "hide when full" and
-  simply follow the game HUD.
+- Icon visibility follows the game HUD; dynamic hiding's "hide when full" applies only
+  to the arcs, not the icons.
 - While the F2 menu is open the bars and icons sit above the menu's dark backdrop, so
   you can still read your own values while moving and resizing them; the panel only
   comes to the front when the cursor moves into it, and drops back below the bars and

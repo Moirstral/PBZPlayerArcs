@@ -29,25 +29,9 @@ local DIM_Z = 44
 -- 鼠标事件。
 local MENU_Z, MENU_TOP_Z = 45, 300
 
-local function valid(object)
-  if object == nil then return false end
-  local ok, answer = pcall(function() return object:IsValid() end)
-  return ok and answer == true
-end
-
-local function cls(path) return StaticFindObject(path) end
-
-local function prop(object, name)
-  local ok, value = pcall(function() return object[name] end)
-  if ok then return value end
-  return nil
-end
-
-local function unwrap(value)
-  local ok, inner = pcall(function() return value:get() end)
-  if ok and inner ~= nil then return inner end
-  return value
-end
+local Util = require('PBZArcsUtil')
+local valid, prop, unwrap, cls = Util.valid, Util.prop, Util.unwrap, Util.cls
+local VIS = Util.VIS
 
 -- FindFirstOf 会遍历所有对象，所以每帧走的路径必须复用结果。
 -- 已销毁的 controller 会 IsValid() 失败，并在下次调用时重新查找。
@@ -163,16 +147,74 @@ end
 
 -- 渲染变换旋转是不用贴图画出箭头的唯一办法。
 -- 如果结构体写入被拒绝，调用方会退回使用文字字形。
+-- 未进存档（主菜单 / 标题画面）时控件虽能创建，但 Slate 视口与缓存几何
+-- 尚未就绪；此时对 UWidget 写 RenderTransform 会在引擎侧解引用无效对象
+-- （C++ 访问违规，Lua 的 pcall 拦不住）。原版 `Sheart` 拼错让 setAngle
+-- 恒失败，恰好一直走文字 'v' 回退；修好拼写后这条引擎路径才第一次真正
+-- 执行。所以显式加前置判断：确认已进入游戏世界才允许旋转。
+-- 对照实验开关：改成 false 则只按「有效 World」判断，不再要求本地角色。
+local REQUIRE_PAWN_FOR_CHEVRON = true
+local chevronGuardState = nil
+local function chevronTransformReady()
+  local ready = false
+  local pc = playerController()
+  if valid(pc) then
+    local world = prop(pc, 'GetWorld') and pc:GetWorld() or nil
+    if valid(world) then
+      ready = true
+      if REQUIRE_PAWN_FOR_CHEVRON then
+        -- 主菜单同样有一个有效 World，再用本地角色区分「是否已进存档」。
+        local pawn = prop(pc, 'Pawn')
+        if not valid(pawn) then
+          local ok, got = pcall(function() return pc:GetPawn() end)
+          pawn = ok and got or nil
+        end
+        ready = valid(pawn)
+      end
+    end
+  end
+  -- 只在状态切换时记一行，实机可直接确认走了哪条分支。
+  if chevronGuardState ~= ready then
+    chevronGuardState = ready
+    pcall(function()
+      Config.log('chevron: RenderTransform '
+        .. (ready and 'enabled' or 'blocked (game world not ready)'))
+    end)
+  end
+  return ready
+end
+
 local function setAngle(widget, angle)
+  if not chevronTransformReady() then return false end
   if not valid(widget) then return false end
   return pcall(function()
     widget:SetRenderTransform({
       Translation = { X = 0, Y = 0 },
       Scale = { X = 1, Y = 1 },
-      Sheart = { X = 0, Y = 0 },
+      Shear = { X = 0, Y = 0 },
       Angle = angle,
     })
   end)
+end
+
+-- 菜单开关守卫：只允许在游戏世界（存档）内打开。
+-- 主界面/读图时 build() 会 SetInputMode_UIOnlyEx + bShowMouseCursor=true，
+-- 关闭时 setInput(false) 又写成 GameOnly + bShowMouseCursor=false，把主界面
+-- 原本的鼠标输入和光标一起清掉，之后只能键盘操作（历史遗留问题）。
+-- 判定与 chevron 守卫同源：主界面也有有效 World，必须用本地 Pawn 区分。
+-- 故意独立实现而不复用 chevronTransformReady()：后者带状态日志、且受
+-- REQUIRE_PAWN_FOR_CHEVRON 对照开关影响，菜单守卫必须始终要求 Pawn。
+local function menuCanOpen()
+  local pc = playerController()
+  if not valid(pc) then return false end
+  local world = prop(pc, 'GetWorld') and pc:GetWorld() or nil
+  if not valid(world) then return false end
+  local pawn = prop(pc, 'Pawn')
+  if not valid(pawn) then
+    local ok, got = pcall(function() return pc:GetPawn() end)
+    pawn = ok and got or nil
+  end
+  return valid(pawn)
 end
 
 local function C(hex, alpha)
@@ -276,8 +318,10 @@ function Menu.new(settings, callbacks)
     dropdowns = {},
     panelX = 0,
     panelY = 0,
-    lastSave = 0,
+    lastSave = -100,
     lastToggle = -100,
+    clock = 0,
+    pendingSaveAt = nil,
     hover = nil,
     hoverSlot = nil,
     cursorH = nil,
@@ -291,7 +335,6 @@ function Menu.new(settings, callbacks)
     lastMoveY = nil,
     text = nil,
     textLang = nil,
-    hoverKey = nil,
     tipRoot = nil,
     tipText = nil,
     tipKey = nil,
@@ -322,10 +365,19 @@ function Menu:t(id)
 end
 
 function Menu:saveSoon(force)
-  local now = os.clock()
-  if not force and now - self.lastSave < 0.35 then return end
-  self.lastSave = now
-  Config.save(self.S)
+  local now = self.clock or 0
+  if force then
+    self.lastSave, self.pendingSaveAt = now, nil
+    Config.save(self.S)
+    return
+  end
+  if now - self.lastSave >= 0.35 then
+    self.lastSave, self.pendingSaveAt = now, nil
+    Config.save(self.S)
+  else
+    -- 窗口内的改动不能丢：记下待写时刻，由 poll 到点补写。
+    self.pendingSaveAt = now + 0.35
+  end
 end
 
 function Menu:changed(key)
@@ -412,7 +464,7 @@ function Menu:fillDropdownMenu(dd, options)
       }
     end
   end
-  pcall(function() menu:SetVisibility(1) end)
+  pcall(function() menu:SetVisibility(VIS.Collapsed) end)
 end
 
 function Menu:buildDropdown(parent, tree, def)
@@ -443,7 +495,7 @@ end
 
 function Menu:refreshDropdown(dd)
   if valid(dd.menu) then
-    pcall(function() dd.menu:SetVisibility(dd.open and 0 or 1) end)
+    pcall(function() dd.menu:SetVisibility(dd.open and VIS.Visible or VIS.Collapsed) end)
   end
   self:setChevron(dd.chevron, dd.open)
   if dd.open then
@@ -539,20 +591,31 @@ function Menu:presetName()
   return preset and preset.name or tostring(self.S.Preset)
 end
 
--- 加载预设会用已存的值替换当前设置，然后按它们重画面板
--- 并重建弧形。
+-- 加载预设会以默认值为基地重算一套完整设置，然后按它们重画面板
+-- 并重建弧形。预设文件里没写的键一律取默认值，不再继承切换前的残留值。
 function Menu:applyPreset(key)
   local preset = Config.presetByKey(self:presetList(), key)
   if preset == nil or preset.values == nil then
     if self.callbacks.alert then self.callbacks.alert('preset missing: ' .. tostring(key)) end
     return
   end
-  -- 语言属于玩家而不属于预设，所以仍然带着 Lang 行的旧预设
-  -- 文件永远不会切换菜单语言。
+  -- S 是 main.lua 与 Follow / Render / Icons / HudBars / Menu 共用的同一个表，
+  -- 必须原地写回；换成新表的话其它模块会一直握着旧的那份。
+  -- 语言、菜单键属于玩家而不属于预设；Preset 在 settings.ini 里存的是文件名，
+  -- 而预设文件里那一行是显示名。三个都按 Config.PLAYER_KEYS 排除，
+  -- 切换预设只重算外观 / 行为数值，玩家级设置原样带回。
+  local lang, menuKey = self.S.Lang, self.S.MenuKey
+  local base = Config.copyDefaults()
   for k, value in pairs(preset.values) do
-    if k ~= 'Lang' then self.S[k] = value end
+    if not Config.PLAYER_KEYS[k] then base[k] = value end
   end
-  self.S.Preset = preset.key
+  base.Lang = lang
+  base.MenuKey = menuKey
+  base.Preset = preset.key
+  for k in pairs(self.S) do
+    if base[k] == nil then self.S[k] = nil end
+  end
+  for k, value in pairs(base) do self.S[k] = value end
   Config.sanitize(self.S)
   self:refreshAllRows()
   self:refreshLanguage()
@@ -613,15 +676,29 @@ function Menu:build()
   self.text = nil
   self:destroy()
   cleanupOld('PBZArcs_Menu')
+  local root, tree
+  -- 下面几处提前返回时，控件已经创建但还没挂到 self.root（要到 build 末尾
+  -- 才赋值），destroy() 够不着，会往 GameInstance 上留半套控件。
+  -- 这里主动断开 WidgetTree 引用链并摘出视口，让 UE 能回收它们。
+  local function fail()
+    pcall(function()
+      if valid(tree) then tree.RootWidget = nil end
+      if valid(root) then
+        root.WidgetTree = nil
+        root:RemoveFromParent()
+      end
+    end)
+    return false
+  end
   local engine = FindFirstOf('GameEngine') or FindFirstOf('Engine')
-  if not valid(engine) then return false end
+  if not valid(engine) then return fail() end
   local gi = prop(engine, 'GameInstance')
-  if not valid(gi) then return false end
+  if not valid(gi) then return fail() end
 
   local suffix = tostring(os.time()) .. '_' .. tostring(math.random(1000, 9999))
-  local root = StaticConstructObject(cls(CLASS.user), gi, FName('PBZArcs_Menu_' .. suffix))
-  local tree = StaticConstructObject(cls(CLASS.tree), root, FName('PBZArcs_MenuTree_' .. suffix))
-  if not (valid(root) and valid(tree)) then return false end
+  root = StaticConstructObject(cls(CLASS.user), gi, FName('PBZArcs_Menu_' .. suffix))
+  tree = StaticConstructObject(cls(CLASS.tree), root, FName('PBZArcs_MenuTree_' .. suffix))
+  if not (valid(root) and valid(tree)) then return fail() end
   root.WidgetTree = tree
   local canvas = StaticConstructObject(cls(CLASS.canvas), tree, FName('PBZArcs_MenuCanvas_' .. suffix))
   tree.RootWidget = canvas
@@ -633,14 +710,14 @@ function Menu:build()
 
   local panel = StaticConstructObject(cls(CLASS.canvas), tree, FName('PBZArcs_MenuPanel_' .. suffix))
   local panelSlot = addChild(canvas, panel, px, py, PANEL_W, PANEL_H, 10)
-  if not valid(panelSlot) then return false end
+  if not valid(panelSlot) then return fail() end
   addBorder(tree, panel, 0, 0, PANEL_W, PANEL_H, PANEL_BG, 0)
   addBorder(tree, panel, 0, 0, PANEL_W, 2, GOLD, 1)
 
   -- 游戏一直隐藏硬件光标，所以菜单自己画一个。
   local hoverBand, hoverBandSlot = addBorder(tree, panel, 12, 0, PANEL_W - 24, ROW_H,
     { R = 0.72, G = 0.57, B = 0.24, A = 0.14 }, 0)
-  if hoverBand then pcall(function() hoverBand:SetVisibility(1) end) end
+  if hoverBand then pcall(function() hoverBand:SetVisibility(VIS.Collapsed) end) end
   self.hover, self.hoverSlot = hoverBand, hoverBandSlot
 
   self.rows = {}
@@ -723,10 +800,9 @@ function Menu:build()
       pcall(function() tipBg:SetPadding({ Left = 9, Top = 6, Right = 9, Bottom = 7 }) end)
       local attached = pcall(function() tipBg:AddChild(tipText) end)
       if attached then pcall(function() tipBgSlot:SetAutoSize(true) end) end
-      pcall(function() tipRoot:SetVisibility(1) end)
+      pcall(function() tipRoot:SetVisibility(VIS.Collapsed) end)
       self.tipRoot, self.tipBg, self.tipBgSlot = tipRoot, tipBg, tipBgSlot
       self.tipText = tipText
-      self:probeLog('tip: border ' .. (attached and 'ok' or 'failed'))
     end
   end
 
@@ -772,7 +848,6 @@ function Menu:build()
     up = true,
     tip = 'tip.visibility',
     options = {
-      { value = 'always', id = 'btn.visibilityAlways' },
       { value = 'hud', id = 'btn.visibilityHud' },
       { value = 'dynamic', id = 'btn.visibilityDynamic' },
     },
@@ -783,8 +858,7 @@ function Menu:build()
     end,
     text = function()
       local mode = tostring(self.S.Visibility or 'dynamic'):lower()
-      return self:t((mode == 'always' and 'btn.visibilityAlways')
-        or (mode == 'hud' and 'btn.visibilityHud') or 'btn.visibilityDynamic')
+      return self:t(mode == 'hud' and 'btn.visibilityHud' or 'btn.visibilityDynamic')
     end,
   })
 
@@ -933,8 +1007,8 @@ function Menu:build()
       self.cursorH, self.cursorHSlot = cursorH, cursorHSlot
       self.cursorV, self.cursorVSlot = cursorV, cursorVSlot
       pcall(function()
-        cursorH:SetVisibility(3)
-        cursorV:SetVisibility(3)
+        cursorH:SetVisibility(VIS.HitTestInvisible)
+        cursorV:SetVisibility(VIS.HitTestInvisible)
       end)
     end
   end
@@ -1007,7 +1081,7 @@ function Menu:build()
   end
   root:AddToViewport(MENU_Z)
   self.viewportZ = MENU_Z
-  root:SetVisibility(0)
+  root:SetVisibility(VIS.Visible)
   self.root, self.tree, self.canvas = root, tree, canvas
   self.open = true
   self:setInput(true)
@@ -1101,10 +1175,11 @@ end
 function Menu:refreshTooltip(tipKey)
   if tipKey == self.tipKey then return end
   self.tipKey = tipKey
+  self.tipX, self.tipY = nil, nil
   if not valid(self.tipRoot) then return end
   local text = tipKey ~= nil and self:t(tipKey) or nil
   if text == nil or text == '' or text == tipKey then
-    pcall(function() self.tipRoot:SetVisibility(1) end)
+    pcall(function() self.tipRoot:SetVisibility(VIS.Collapsed) end)
     return
   end
   local body, count = breakLines(text, TIP_WRAP)
@@ -1115,7 +1190,7 @@ function Menu:refreshTooltip(tipKey)
   end
   self.tipW = math.floor(widest) + 18
   self.tipH = count * 19 + 13
-  pcall(function() self.tipRoot:SetVisibility(3) end)
+  pcall(function() self.tipRoot:SetVisibility(VIS.HitTestInvisible) end)
 end
 
 function Menu:placeTooltip(lx, ly)
@@ -1124,6 +1199,8 @@ function Menu:placeTooltip(lx, ly)
   local tx, ty = lx + 18, ly + 18
   if tx + w > PANEL_W - 8 then tx = math.max(8, lx - w - 12) end
   if ty + h > PANEL_H - 8 then ty = math.max(8, ly - h - 12) end
+  if self.tipX == tx and self.tipY == ty then return end
+  self.tipX, self.tipY = tx, ty
   pcall(function() self.tipRoot:SetRenderTranslation({ X = tx, Y = ty }) end)
 end
 
@@ -1244,14 +1321,6 @@ local function fkeyArg(name)
   return arg
 end
 
-function Menu:probeLog(message)
-  if not self.S.Debug then return end
-  self.probeSeen = self.probeSeen or {}
-  if self.probeSeen[message] then return end
-  self.probeSeen[message] = true
-  if self.callbacks.log then self.callbacks.log(message) end
-end
-
 function Menu:keyDown(name)
   if name == nil or self.keyUsable == false then return nil end
   local pc = playerController()
@@ -1263,7 +1332,6 @@ function Menu:keyDown(name)
   end
   if not ok then
     self.keyUsable = false
-    self:probeLog('hold detection: IsInputKeyDown unavailable (' .. tostring(down) .. ')')
     return nil
   end
   self.keyUsable = true
@@ -1290,12 +1358,10 @@ function Menu:checkHold(state, dt)
   if state.reliable == nil then
     if down == true then
       state.reliable = true
-      self:probeLog('hold ' .. tostring(state.button) .. ': engine reports the button down')
     else
       state.grace = (state.grace or 0) + (tonumber(dt) or 0.016)
       if state.grace >= HOLD_GRACE then
         state.reliable = false
-        self:probeLog('hold ' .. tostring(state.button) .. ': no button state, using still cursor')
       end
     end
   end
@@ -1343,7 +1409,7 @@ function Menu:click()
 
   local openDD = nil
   for _, dd in ipairs(self.dropdowns or {}) do
-    if dd.open then openDD = dd end
+    if dd.open then openDD = dd break end
   end
   if openDD then
     for _, item in ipairs(openDD.items or {}) do
@@ -1356,8 +1422,8 @@ function Menu:click()
       and lx >= openDD.button.x and lx <= openDD.button.x + openDD.button.w
       and ly >= openDD.button.y and ly <= openDD.button.y + openDD.button.h
     if not onButton then
+      -- 关掉下拉框后继续处理这次点击，落在按钮或滑块上就照常响应。
       self:closeDropdowns(nil)
-      return
     end
   end
 
@@ -1407,12 +1473,16 @@ function Menu:updatePointer(x, y)
   end
   local inside = lx > 0 and lx < PANEL_W and ly > 0 and ly < PANEL_H
 
-  local hoverRow = nil
+  -- 一次遍历同时求「悬停行」和「指针下的行」，不再每帧扫两遍 rows。
+  local hoverRow, hitRow = nil, nil
   if inside then
     for _, row in ipairs(self.rows) do
       if ly >= row.y and ly <= row.y + ROW_H then
-        hoverRow = row
-        break
+        if hoverRow == nil then hoverRow = row end
+        if lx >= row.labelX and lx <= row.valueX + 54 then
+          hitRow = row
+          break
+        end
       end
     end
   end
@@ -1422,10 +1492,10 @@ function Menu:updatePointer(x, y)
       if hoverRow then
         pcall(function()
           self.hoverSlot:SetPosition({ X = 12, Y = hoverRow.y })
-          self.hover:SetVisibility(3)
+          self.hover:SetVisibility(VIS.HitTestInvisible)
         end)
       else
-        pcall(function() self.hover:SetVisibility(1) end)
+        pcall(function() self.hover:SetVisibility(VIS.Collapsed) end)
       end
     end
   end
@@ -1463,8 +1533,7 @@ function Menu:updatePointer(x, y)
     if hoverButton ~= nil then
       tipKey = hoverButton.tip
     else
-      local row = self:rowAtMouse()
-      tipKey = row and row.tip or nil
+      tipKey = hitRow and hitRow.tip or nil
     end
   end
   self:refreshTooltip(tipKey)
@@ -1489,6 +1558,14 @@ function Menu:assertCursor()
 end
 
 function Menu:poll(dt, keepLow)
+  -- 用帧时间做统一时钟：os.clock() 是 CPU 时间，会让防抖窗口失真。
+  self.clock = (self.clock or 0) + (tonumber(dt) or 0.016)
+  -- 防抖窗口里被推迟的改动在这里补写；菜单关掉后 poll 仍会继续跑。
+  if self.pendingSaveAt ~= nil and self.clock >= self.pendingSaveAt then
+    self.pendingSaveAt = nil
+    self.lastSave = self.clock
+    Config.save(self.S)
+  end
   if not self.open or not valid(self.root) then return end
   self:assertCursor()
   local x, y = self:mouse()
@@ -1524,7 +1601,10 @@ function Menu:poll(dt, keepLow)
 end
 
 function Menu:toggle()
-  local now = os.clock()
+  -- 关闭永远允许（否则菜单会卡死）；打开只在存档内允许。
+  -- 放在防抖之前：主界面按 F2 不消耗 0.4s 窗口，进存档后立刻能打开。
+  if not self.open and not menuCanOpen() then return end
+  local now = self.clock or 0
   if now - self.lastToggle < 0.4 then return end
   self.lastToggle = now
   if self.open then
@@ -1541,6 +1621,11 @@ function Menu:toggle()
 end
 
 function Menu:destroy()
+  -- 关菜单、热重载都会走这里；防抖窗口里还没写回的改动不能丢。
+  if self.pendingSaveAt ~= nil then
+    self.pendingSaveAt = nil
+    Config.save(self.S)
+  end
   if self.root ~= nil and valid(self.root) then
     pcall(function() self.root:RemoveFromParent() end)
   end
@@ -1562,6 +1647,7 @@ function Menu:destroy()
   self.mouseX, self.mouseY = nil, nil
   self.tipRoot, self.tipBg, self.tipBgSlot = nil, nil, nil
   self.tipText, self.tipKey = nil, nil
+  self.tipX, self.tipY = nil, nil
   self.tipW, self.tipH = nil, nil
   self.dropdowns = {}
   self.cursorLogged = nil

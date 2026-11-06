@@ -20,23 +20,9 @@ local function rawLog(message) Config.log('[main] ' .. tostring(message)) end
 local function log(message) if debugOn then rawLog(message) end end
 local function alert(message) rawLog(message) end
 
-local function valid(object)
-  if object == nil then return false end
-  local ok, answer = pcall(function() return object:IsValid() end)
-  return ok and answer == true
-end
-
-local function prop(object, name)
-  local ok, value = pcall(function() return object[name] end)
-  if ok then return value end
-  return nil
-end
-
-local function unwrap(value)
-  local ok, inner = pcall(function() return value:get() end)
-  if ok and inner ~= nil then return inner end
-  return value
-end
+local Util = require('PBZArcsUtil')
+local valid, prop, unwrap = Util.valid, Util.prop, Util.unwrap
+local VIS = Util.VIS
 
 ---------------------------------------------------------------------------------------------------
 -- 窗口 / HUD 辅助函数
@@ -79,9 +65,13 @@ local function widgetChainVisible(widget, skipViewportCheck)
   local root = widget
   local factor = 1
   for _ = 1, 8 do
-    if not valid(cur) then return false, 0 end
+    if not valid(cur) then return false, 0, true end
     local okV, visibility = pcall(function() return cur.Visibility end)
-    if okV and (visibility == 1 or visibility == 2) then return false, 0 end
+    -- 第三个返回值是「硬隐藏」：只认 Visibility 的 Collapsed/Hidden，
+    -- 不看 RenderOpacity。常态显示需要忽略淡出，但必须尊重这个状态。
+    if okV and (visibility == VIS.Collapsed or visibility == VIS.Hidden) then return false, 0, true end
+    -- factor 是游戏 HUD 当前的「连续不透明度」。RenderOpacity 刚从 1 掉下来的
+    -- 那一帧就是游戏开始淡出的最早信号，比 Visibility 变 Hidden 早一整段动画。
     local okO, opacity = pcall(function() return cur.RenderOpacity end)
     if okO and type(opacity) == 'number' then
       factor = math.min(factor, math.max(0, math.min(1, opacity)))
@@ -95,9 +85,9 @@ local function widgetChainVisible(widget, skipViewportCheck)
     -- 游戏一次性构建并缓存的控件（地图、背包、菜单）即使脱离视口后仍标记为
     -- 可见，所以这条链必须最终落在一个位于视口内的控件上。
     local okIn, inViewport = pcall(function() return root:IsInViewport() end)
-    if okIn and inViewport ~= true then return false, 0 end
+    if okIn and inViewport ~= true then return false, 0, false end
   end
-  return factor > 0.01, factor
+  return factor > 0.01, factor, false
 end
 
 local function findHudWidget()
@@ -121,7 +111,13 @@ local function findHudWidget()
               owned = okN and ownerName == pcName
             end
           end
-          local shown = widgetChainVisible(widget, true)
+          -- 打分只用一次 Visibility 读取。以前这里对**每个候选**都跑
+          -- widgetChainVisible（最多 8 层父链 × 3 次反射 ≈ 24 次 pcall），
+          -- 只为了给 score 加 1；真正的可见性判定由 hudVisible() 在选中
+          -- 的那个 widget 上做一次完整链检查，结果不受这个排序启发式影响。
+          local shown = false
+          local okV, vis = pcall(function() return widget.Visibility end)
+          if okV then shown = not (vis == VIS.Collapsed or vis == VIS.Hidden) end
           local score = (owned and 2 or 0) + (shown and 1 or 0)
           if score > bestScore then best, bestScore = widget, score end
         end
@@ -191,13 +187,23 @@ local lastStatsWarn = -100
 local lastDebugAt = -100
 local lastIconsError = -100
 local lastBarsError = -100
-local attributesDumped = false
 local hudSeenVisible = false
 local hudHiddenSince = nil
 local fullSince = { hp = nil, qi = nil }
 local FULL_RATIO = 0.995
+-- 实机结论：0.2 有明显延迟；0.05 一直跟手；再压到 0.01 会让常态几乎每帧
+-- 都跑一次全量 FindAllOf，帧耗时抖动 + 采样周期逼近帧间隔（60fps≈16.7ms）
+-- 造成相位不稳，反而偶发不跟手。固定 0.05，别再调这个值。
+-- 淡出/淡入期间由下面的自适应分支逐帧镜像，跟手程度不再由它决定；
+-- 它只负责「常态」采样，以及发现游戏 HUD 开始隐藏的起点延迟。
+local HUD_POLL_INTERVAL = 0.05
+local HUD_FADE_MIN, HUD_FADE_MAX = 0.01, 0.999
+-- 观测到的游戏 HUD 常态不透明度。镜像时按它归一化，这样即便游戏把 HUD
+-- 整体设成 0.9，MOD 常态仍是满亮，跟随的只是「相对淡出进度」。
+local hudBaseAlpha = 0
 local hudCacheAt = -1
-local hudCacheVisible, hudCacheFactor = nil, 1
+local hudCacheVisible, hudCacheFactor, hudCacheHidden = nil, 1, false
+local lastMenuOpen = false
 local traceTicks = 0
 local pending = { toggle = false, click = false, rclick = false, mclick = false,
   close = false }
@@ -242,44 +248,23 @@ end
 
 local function hudVisible()
   local now = os.clock()
-  if now - hudCacheAt < 0.05 then return hudCacheVisible, hudCacheFactor end
+  -- 淡出/淡入过程中逐帧重算；常态才走 0.05s 缓存。
+  local base = hudBaseAlpha > HUD_FADE_MIN and hudBaseAlpha or 1
+  local fading = hudCacheFactor ~= nil and hudCacheFactor > HUD_FADE_MIN
+    and hudCacheFactor < base * HUD_FADE_MAX
+  if not fading and now - hudCacheAt < HUD_POLL_INTERVAL then
+    return hudCacheVisible, hudCacheFactor, hudCacheHidden
+  end
   hudCacheAt = now
   local widget = findHudWidget()
   if not valid(widget) then
-    hudCacheVisible, hudCacheFactor = nil, 1
-    return nil, 1
+    -- HUD 容器不存在（读图、进游戏前）按隐藏处理。
+    hudCacheVisible, hudCacheFactor, hudCacheHidden = nil, 1, true
+    return nil, 1, true
   end
-  local visible, factor = widgetChainVisible(widget, true)
-  hudCacheVisible, hudCacheFactor = visible, factor
-  return visible, factor
-end
-
--- 全屏游戏界面（地图、设置、背包、暂停）绘制在 HUD 之上，而 HUD 仍在底下
--- 继续渲染，所以光看 HUD 的可见性区分不开它们。硬件光标标志是第二个、
--- 独立的信号：游戏过程中光标隐藏，这些界面则会显示光标。
-local UI_SCREEN_CLASSES = { 'WB_MapNew_C', 'W_PBZSettingPanel_C', 'WB_Inventory_C', 'WB_StartMenu_V2_C' }
-local uiProbeAt, uiProbeResult = nil, false
-local function gameUIOpen(now)
-  if uiProbeAt ~= nil and now - uiProbeAt < 0.25 then return uiProbeResult end
-  uiProbeAt = now
-  uiProbeResult = false
-  for _, name in ipairs(UI_SCREEN_CLASSES) do
-    local ok, list = pcall(function() return FindAllOf(name) end)
-    if ok and type(list) == 'table' then
-      for i = 1, #list do
-        if valid(list[i]) and widgetChainVisible(list[i]) then
-          uiProbeResult = true
-          return true
-        end
-      end
-    end
-  end
-  local pc = localPC()
-  if valid(pc) then
-    local ok, shown = pcall(function() return pc.bShowMouseCursor end)
-    if ok and shown == true then uiProbeResult = true end
-  end
-  return uiProbeResult
+  local visible, factor, hardHidden = widgetChainVisible(widget, true)
+  hudCacheVisible, hudCacheFactor, hudCacheHidden = visible, factor, hardHidden
+  return visible, factor, hardHidden
 end
 
 ---------------------------------------------------------------------------------------------------
@@ -324,6 +309,13 @@ local function step(dt)
   pcall(function() menu:poll(dt, icons.dragging ~= nil) end)
   pcall(function() icons:poll(dt) end)
 
+  -- 菜单开合立刻改变 HUD 的显隐需求（step 末尾会读 hudVisible）。
+  -- 这里强制下一次采样重算，覆盖 F2 / ESC / 点击关闭等所有开合路径。
+  if menu.open ~= lastMenuOpen then
+    lastMenuOpen = menu.open
+    hudCacheAt = -1
+  end
+
   if not renderAlive() then
     if now >= nextBuildTry then
       nextBuildTry = now + 1.0
@@ -336,15 +328,6 @@ local function step(dt)
   end
 
   local snapshot, statsError = readSnapshot(now)
-  if S.Debug and snapshot ~= nil and not attributesDumped then
-    local lines = stats:describeAttributes()
-    if #lines > 0 then
-      attributesDumped = true
-      log('attr dump start (' .. #lines .. ' lines)')
-      for _, line in ipairs(lines) do log('attr ' .. line) end
-      log('attr dump end')
-    end
-  end
   local trace = S.Debug and snapshot ~= nil and traceTicks < 3
   if trace then
     traceTicks = traceTicks + 1
@@ -379,6 +362,16 @@ local function step(dt)
   end
 
   local hudShown, hudOpacity = hudVisible()
+  -- 游戏 HUD 的连续不透明度就是「淡出开始」的最早状态：RenderOpacity 刚从
+  -- 1 掉下来的那一帧游戏才启动淡出，等到 Visibility 变 Hidden 已经是动画结束，
+  -- 那时才让 MOD 开始自己的淡出，必然比游戏晚一整段动画。这里全程镜像这条曲线。
+  -- hudShown == nil 表示 HUD 控件根本不存在（读图/主界面），按 0 处理。
+  local hudAlpha = (hudShown == nil) and 0
+    or math.max(0, math.min(1, tonumber(hudOpacity) or 0))
+  if hudAlpha > hudBaseAlpha then hudBaseAlpha = hudAlpha end
+  -- 归一化后的淡出进度：游戏从常态淡到 0，MOD 就从 1 淡到 0。
+  local hudMirror = hudBaseAlpha > HUD_FADE_MIN
+    and math.min(1, hudAlpha / hudBaseAlpha) or hudAlpha
   if hudShown == true then
     hudSeenVisible = true
     hudHiddenSince = nil
@@ -399,11 +392,11 @@ local function step(dt)
   local hudGone = not hudOn and (visibility == 'dynamic' or not hudSeenVisible or hudFaded)
   if visibility == 'hud' then
     visible = not hudGone
-    hudFactor = hudDimmed and (hudOpacity or 1) or 1
+    hudFactor = hudMirror
     fullSince.hp, fullSince.qi = nil, nil
-  elseif visibility == 'dynamic' then
-    -- 动态隐藏：每条弧线单独计时。满值持续时间达到 HideDelay 后只隐藏那一条，
-    -- 掉下来立刻恢复；未满时仍跟随游戏 HUD 显隐。
+  else
+    -- 动态隐藏（默认）：每条弧线单独计时。满值持续时间达到 HideDelay 后
+    -- 只隐藏那一条，掉下来立刻恢复；未满时仍跟随游戏 HUD 显隐。
     local delay = math.max(0, tonumber(S.HideDelay) or 3)
     local function fullFor(ratio, key)
       if ratio == nil or ratio < FULL_RATIO then
@@ -417,15 +410,7 @@ local function step(dt)
     local hideQi = fullFor(qiRatio, 'qi')
     hpShown, qiShown = not hideHp, not hideQi
     visible = not hudGone and (hpShown or qiShown)
-    hudFactor = hudDimmed and (hudOpacity or 1) or 1
-  else
-    hudHiddenSince = nil
-    fullSince.hp, fullSince.qi = nil, nil
-  end
-  local uiOpen = gameUIOpen(now)
-  if uiOpen then
-    visible = false
-    hudFactor = 1
+    hudFactor = hudMirror
   end
   if menu.open then
     visible = true
@@ -437,13 +422,9 @@ local function step(dt)
   local iconsOk, iconsErr = pcall(function()
     icons:update(dt, {
       menuOpen = menu.open,
-      uiOpen = uiOpen,
-      -- 图标读数跟随显示设置；dynamic 的「值满隐藏」只作用于弧线。
-      hudShown = visibility == 'always' or not hudGone,
-      -- HUD 淡出时把它当前的不透明度一起交给图标，让读数跟着 HUD 一起变暗、
-      -- 一起消失，而不是等 HUD 完全收起后才一次性隐藏。
-      hudFade = (visibility == 'always' or menu.open) and 1
-        or math.max(0, math.min(1, tonumber(hudOpacity) or 1)),
+      -- 图标与弧线共用同一条游戏 HUD 淡出曲线，不再等「完全隐藏」这个布尔量。
+      hudShown = menu.open or hudMirror > 0.01,
+      hudFade = menu.open and 1 or hudMirror,
       -- 精纯杀气的充能比例（UltimateCharge / Max），图标模块用它画充能条。
       ultRatio = ultRatio,
     })
@@ -463,7 +444,13 @@ local function step(dt)
 
   local target = (snapshot ~= nil and anchorX ~= nil and onscreen and visible)
     and hudFactor or 0
-  master = master + (target - master) * math.min(1, math.max(0, dt) * 12)
+  if target <= master then
+    -- 游戏 HUD 的淡出曲线本身已经平滑过；再叠一次指数滤波等于又晚一拍。
+    -- 淡出方向直接镜像，只有淡入方向保留缓动，避免骤然出现。
+    master = target
+  else
+    master = master + (target - master) * math.min(1, math.max(0, dt) * 12)
+  end
   if master < 0.01 and target == 0 then master = 0 end
 
   if renderAlive() then
@@ -498,7 +485,7 @@ local function step(dt)
         bar.lastFillOpacity or -1, bar.lastTrackOpacity or -1)
     end
     log(string.format(
-      'hp=%.3f qi=%.3f anchor=%s,%s scale=%.3f master=%.2f onscreen=%s visible=%s vis=%s shown=%s/%s delay=%.1f hud=%s ui=%s proj=%s',
+      'hp=%.3f qi=%.3f anchor=%s,%s scale=%.3f master=%.2f onscreen=%s visible=%s vis=%s shown=%s/%s delay=%.1f hud=%s proj=%s',
       hpRatio or -1, qiRatio or -1,
       anchorX and string.format('%.0f', anchorX) or '?',
       anchorY and string.format('%.0f', anchorY) or '?',
@@ -506,7 +493,7 @@ local function step(dt)
       tostring(hpShown), tostring(qiShown), tonumber(S.HideDelay) or 3,
       -- HUD 的显隐和它当前的淡出程度分开打，图标跟着 HUD 走时能看出滞后在哪一侧。
       string.format('%s/%.2f', tostring(hudShown), tonumber(hudOpacity) or -1),
-      tostring(uiOpen), tostring(follow.methodIndex)))
+      tostring(follow.methodIndex)))
     log('bars hp[' .. barInfo(hb) .. '] qi[' .. barInfo(qb) .. '] th=' .. tostring(S.Thickness) ..
       ' hpcol=' .. tostring(S.HpColor) .. ' qicol=' .. tostring(S.QiColor))
   end
@@ -551,7 +538,9 @@ end
 
 function RT.shutdown()
   RT.alive = false
-  pcall(function() menu:setInput(false) end)
+  -- 没打开过菜单就不要动输入状态：主界面热重载时无条件 setInput(false)
+  -- 一样会把 bShowMouseCursor 清掉、把输入切成 GameOnly，让主界面失去鼠标。
+  if menu.open then pcall(function() menu:setInput(false) end) end
   pcall(function() menu:destroy() end)
   pcall(function() render:destroy() end)
   pcall(function() icons:destroy() end)
@@ -559,6 +548,8 @@ function RT.shutdown()
   cleanupWidgets('PBZArcs_Root_')
   cleanupWidgets('PBZArcs_Menu')
   cleanupWidgets('PBZArcs_Icons')
+  -- 日志句柄常驻复用（Config.log），卸载/热重载时放开，避免句柄泄漏。
+  pcall(function() Config.closeLog() end)
 end
 
 local lastClock = nil

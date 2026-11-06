@@ -7,8 +7,9 @@ Config.INI = Config.DIR .. '/settings.ini'
 Config.LOG = Config.DIR .. '/PBZArcs.log'
 Config.VERSION = '0.3.0'
 
--- 预设存放在 Scripts/preset/ 文件夹里，每个预设一个完整的设置文件：
--- preset1.ini、preset2.ini……每个文件在各自的 Preset 行里保存自己的显示名，
+-- 预设存放在 Scripts/preset/ 文件夹里，每个预设一个差异文件：
+-- preset1.ini、preset2.ini……只写与默认值不同的键，没写的键一律取
+-- DEFAULTS。每个文件在各自的 Preset 行里保存自己的显示名，
 -- 而 settings.ini 的 Preset 保存的是预设文件名（不含扩展名），
 -- 因此重命名显示名永远不会破坏「当前正在用哪个预设」的对应关系。
 Config.PRESET_DIR = Config.DIR .. '/preset'
@@ -21,109 +22,91 @@ function Config.presetPath(index)
   return Config.PRESET_DIR .. '/' .. Config.presetKey(index) .. '.ini'
 end
 
-local DEFAULTS = {
+-- 唯一的默认值清单：键顺序就是 settings.ini / 预设文件的写入顺序。
+-- 新增设置只在这里加一行：DEFAULTS 与 ORDER 都由 FIELDS 生成，
+-- sanitize 的兜底值也统一从 DEFAULTS 取，不再各自维护一份字面量。
+local FIELDS = {
   -- 当前数值来源的那个 preset/ 里的预设的文件名（不含扩展名）
-  Preset = 'preset1',
-
+  { 'Preset', 'preset1' },
   -- 跟随
-  FollowCharacter = true,
-  FollowSmoothing = 0.10,   -- 秒；0 = 瞬间吸附
-  FixedAnchorX = 0.50,      -- 仅在 FollowCharacter = false 时使用
-  FixedAnchorY = 0.55,
-  AnchorHeight = 15,        -- 厘米，位于玩家 actor 原点之上
-  AnchorOffsetX = 0,        -- 1080p 基准像素
-  AnchorOffsetY = 0,
-
+  { 'FollowCharacter', true },
+  { 'FollowSmoothing', 0.10 },    -- 秒；0 = 瞬间吸附
+  { 'FixedAnchorX', 0.50 },    -- 仅在 FollowCharacter = false 时使用
+  { 'FixedAnchorY', 0.55 },
+  { 'AnchorHeight', 15 },    -- 厘米，位于玩家 actor 原点之上
+  { 'AnchorOffsetX', 0 },    -- 1080p 基准像素
+  { 'AnchorOffsetY', 0 },
   -- 弧形几何（1080p 基准像素 / 角度）
-  Radius = 195,
-  Thickness = 12,
-  ArcSpan = 60,
-  Segments = 45,
-  HpOnLeft = true,
-  BrushJitter = 0,
-
-  -- 外观
-  BarOpacity = 0.75,
-  TrackOpacity = 0.45,
-  GhostOpacity = 0.55,
-  GhostSpeed = 0.35,        -- 秒
-  ShowGhost = true,
-  ShowTip = true,
-  TipScale = 1.80,
-  TipAngle = -15,
-  HpColor = '#D6D2C6',      -- 游戏血条为淡银色
-  QiColor = '#D9A62E',      -- 游戏杀气条为金色
-  TrackColor = '#0A0908',
-  WarnColor = '#E0301E',
-
-  -- 低值警告
-  WarnThresholdHp = 0.30,
-  WarnThresholdQi = 0.25,
-  WarnFlashSpeed = 1.80,    -- 赫兹
-  WarnFlashAmount = 0.65,
-
-  -- 可见性
-  Visibility = 'dynamic',   -- always / hud / dynamic（dynamic = 满条持续 HideDelay 后隐藏，否则跟随 HUD）
-  HideDelay = 3.0,          -- 条必须保持满值的秒数，之后 dynamic 才会把它隐藏
-  DisplayMode = 'both',     -- both / hp / qi / off
-
-  -- 平面式的药品 / 绝招读数（复制自游戏 HUD）
-  MedicineHud = true,
-  UltHud = true,
-  MedicineHudX = -1,        -- 屏幕像素；-1 = 自动放在底部居中
-  MedicineHudY = -1,
-  UltHudX = -1,
-  UltHudY = -1,
-  -- 每个图标在自己组内的位移；0 = 自动布局。
-  Med1OffX = 0, Med1OffY = 0,
-  Med2OffX = 0, Med2OffY = 0,
-  Ult1OffX = 0, Ult1OffY = 0,
-  Ult2OffX = 0, Ult2OffY = 0,
-  IconScale = 1.0,          -- 决定每个图标、其数字以及它们之间间距的大小
-  UltChargeBar = true,      -- 精纯杀气图标本体的充能填充
-
-  -- 原生血条 / 杀气条（游戏自带的左下角条）
-  PinHudBars = true,        -- 把两条固定为游戏最初设定的长度
-  HudBarWidth = -1,         -- 固定宽度，单位为 slate 像素；-1 = 游戏给这条设定的长度
-  HudNumbers = true,        -- 在游戏的条上显示当前 / 最大值；是否固定都能用
-  HudNumberStyle = 'center', -- side = 在条的上方 / 下方，center = 在条内部
-
-  -- 按键 / 菜单
-  MenuKey = 'F2',
-  -- 空表示「尚未选择」：首次运行会用游戏自身的 culture 填入。
-  Lang = '',            -- Scripts/lang 下的语言文件名，即一个 culture 名称
-
-  -- 资源
-  Texture = '/Game/PBZContent/VFX/SceneFX/UI/Common/Assets/T_UI_Common_InkBar_003.T_UI_Common_InkBar_003',
-  InkMaterial = '/Game/PBZContent/VFX/SceneFX/UI/Common/M_UI_InkBar_A_002_Inst2.M_UI_InkBar_A_002_Inst2',
-  TipTexture = '/Game/PBZContent/UI/Hud/Art/Hud_Blood_End.Hud_Blood_End',
-
+  { 'Radius', 195 },
+  { 'Thickness', 12 },
+  { 'ArcSpan', 60 },
+  { 'Segments', 45 },
+  { 'HpOnLeft', true },
+  { 'BrushJitter', 0 },
   -- 墨迹笔画
-  StrokeOverlap = 9.5,      -- 每一份笔刷副本绘制多少个段长
-
-  Debug = false,
+  { 'StrokeOverlap', 9.5 },    -- 每一份笔刷副本绘制多少个段长
+  -- 外观
+  { 'BarOpacity', 0.75 },
+  { 'TrackOpacity', 0.45 },
+  { 'GhostOpacity', 0.55 },
+  { 'GhostSpeed', 0.35 },    -- 秒
+  { 'ShowGhost', true },
+  { 'ShowTip', true },
+  { 'TipScale', 1.80 },
+  { 'TipAngle', -15 },
+  { 'HpColor', '#D6D2C6' },    -- 游戏血条为淡银色
+  { 'QiColor', '#D9A62E' },    -- 游戏杀气条为金色
+  { 'TrackColor', '#0A0908' },
+  { 'WarnColor', '#E0301E' },
+  -- 低值警告
+  { 'WarnThresholdHp', 0.30 },
+  { 'WarnThresholdQi', 0.25 },
+  { 'WarnFlashSpeed', 1.80 },    -- 赫兹
+  { 'WarnFlashAmount', 0.65 },
+  -- 可见性
+  { 'Visibility', 'dynamic' },    -- hud / dynamic（dynamic = 满条持续 HideDelay 后隐藏，否则跟随 HUD）
+  { 'HideDelay', 3.0 },    -- 条必须保持满值的秒数，之后 dynamic 才会把它隐藏
+  { 'DisplayMode', 'both' },    -- both / hp / qi / off
+  -- 平面式的药品 / 绝招读数（复制自游戏 HUD）
+  { 'MedicineHud', true },
+  { 'UltHud', true },
+  { 'MedicineHudX', -1 },    -- 屏幕像素；-1 = 自动放在底部居中
+  { 'MedicineHudY', -1 },
+  { 'UltHudX', -1 },
+  { 'UltHudY', -1 },
+  { 'Med1OffX', 0 },
+  { 'Med1OffY', 0 },
+  { 'Med2OffX', 0 },
+  { 'Med2OffY', 0 },
+  { 'Ult1OffX', 0 },
+  { 'Ult1OffY', 0 },
+  { 'Ult2OffX', 0 },
+  { 'Ult2OffY', 0 },
+  { 'IconScale', 1.0 },    -- 决定每个图标、其数字以及它们之间间距的大小
+  { 'UltChargeBar', true },    -- 精纯杀气图标本体的充能填充
+  -- 原生血条 / 杀气条（游戏自带的左下角条）
+  { 'PinHudBars', true },    -- 把两条固定为游戏最初设定的长度
+  { 'HudBarWidth', -1 },    -- 固定宽度，单位为 slate 像素；-1 = 游戏给这条设定的长度
+  { 'HudNumbers', true },    -- 在游戏的条上显示当前 / 最大值；是否固定都能用
+  { 'HudNumberStyle', 'center' },    -- side = 在条的上方 / 下方，center = 在条内部
+  -- 按键 / 菜单
+  { 'MenuKey', 'F2' },
+  { 'Lang', '' },    -- Scripts/lang 下的语言文件名，即一个 culture 名称
+  -- 资源
+  { 'Texture', '/Game/PBZContent/VFX/SceneFX/UI/Common/Assets/T_UI_Common_InkBar_003.T_UI_Common_InkBar_003' },
+  { 'InkMaterial', '/Game/PBZContent/VFX/SceneFX/UI/Common/M_UI_InkBar_A_002_Inst2.M_UI_InkBar_A_002_Inst2' },
+  { 'TipTexture', '/Game/PBZContent/UI/Hud/Art/Hud_Blood_End.Hud_Blood_End' },
+  -- 调试
+  { 'Debug', false },
 }
+Config.FIELDS = FIELDS
+
+local DEFAULTS, ORDER = {}, {}
+for _, field in ipairs(FIELDS) do
+  DEFAULTS[field[1]] = field[2]
+  ORDER[#ORDER + 1] = field[1]
+end
 Config.DEFAULTS = DEFAULTS
-
-local ORDER = {
-  'Preset',
-  'FollowCharacter', 'FollowSmoothing', 'FixedAnchorX', 'FixedAnchorY',
-  'AnchorHeight', 'AnchorOffsetX', 'AnchorOffsetY',
-  'Radius', 'Thickness', 'ArcSpan', 'Segments', 'HpOnLeft', 'BrushJitter', 'StrokeOverlap',
-  'BarOpacity', 'TrackOpacity', 'GhostOpacity', 'GhostSpeed', 'ShowGhost',
-  'ShowTip', 'TipScale', 'TipAngle',
-  'HpColor', 'QiColor', 'TrackColor', 'WarnColor',
-  'WarnThresholdHp', 'WarnThresholdQi', 'WarnFlashSpeed', 'WarnFlashAmount',
-  'Visibility', 'HideDelay', 'DisplayMode',
-  'MedicineHud', 'UltHud', 'MedicineHudX', 'MedicineHudY', 'UltHudX', 'UltHudY',
-  'Med1OffX', 'Med1OffY', 'Med2OffX', 'Med2OffY',
-  'Ult1OffX', 'Ult1OffY', 'Ult2OffX', 'Ult2OffY',
-  'IconScale', 'UltChargeBar',
-  'PinHudBars', 'HudBarWidth', 'HudNumbers', 'HudNumberStyle',
-  'MenuKey', 'Lang',
-  'Texture', 'InkMaterial', 'TipTexture',
-  'Debug',
-}
 Config.ORDER = ORDER
 
 local function parseBool(v)
@@ -141,21 +124,49 @@ local function clamp(v, lo, hi)
 end
 Config.clamp = clamp
 
+-- 数值兜底统一走 DEFAULTS，不再给每个键各写一份默认字面量。
+-- round = true 时先四舍五入再夹到区间，顺序与原实现一致。
+local function ranged(S, key, lo, hi, round)
+  local n = tonumber(S[key]) or DEFAULTS[key]
+  if round then n = math.floor(n + 0.5) end
+  return clamp(n, lo, hi)
+end
+
 function Config.copyDefaults()
   local s = {}
   for k, v in pairs(DEFAULTS) do s[k] = v end
   return s
 end
 
+-- 日志句柄常驻复用：原来每条日志都 io.open('a') / write / close，
+-- Debug 打开时一帧能写多条，全是重复的系统调用。写完立即 flush，
+-- 外部查看日志仍能看到最新内容，语义与逐条 close 一致。
+local logHandle = nil
+
+function Config.closeLog()
+  if logHandle then
+    pcall(function() logHandle:close() end)
+    logHandle = nil
+  end
+end
+
 function Config.log(message)
-  local f = io.open(Config.LOG, 'a')
+  if logHandle == nil then
+    logHandle = io.open(Config.LOG, 'a')
+  end
+  local f = logHandle
   if f then
-    f:write(os.date('%H:%M:%S ') .. tostring(message) .. '\n')
-    f:close()
+    local ok = pcall(function()
+      f:write(os.date('%H:%M:%S ') .. tostring(message) .. '\n')
+      f:flush()
+    end)
+    if not ok then Config.closeLog() end
   end
 end
 
 function Config.initLog()
+  -- 可能要删掉超大日志，先放开句柄，否则 Windows 上文件删不掉。
+  Config.closeLog()
   local f = io.open(Config.LOG, 'r')
   local big = false
   if f then
@@ -273,61 +284,61 @@ end
 -- 读取 / 保存
 
 function Config.sanitize(S)
-  S.FollowSmoothing = clamp(tonumber(S.FollowSmoothing) or 0.10, 0, 1.0)
-  S.FixedAnchorX = clamp(tonumber(S.FixedAnchorX) or 0.5, 0, 1)
-  S.FixedAnchorY = clamp(tonumber(S.FixedAnchorY) or 0.55, 0, 1)
-  S.AnchorHeight = clamp(tonumber(S.AnchorHeight) or DEFAULTS.AnchorHeight, -100, 300)
-  S.AnchorOffsetX = clamp(tonumber(S.AnchorOffsetX) or 0, -600, 600)
-  S.AnchorOffsetY = clamp(tonumber(S.AnchorOffsetY) or 0, -600, 600)
-  S.Radius = clamp(math.floor((tonumber(S.Radius) or DEFAULTS.Radius) + 0.5), 60, 600)
-  S.Thickness = clamp(math.floor((tonumber(S.Thickness) or DEFAULTS.Thickness) + 0.5), 2, 30)
-  S.ArcSpan = clamp(tonumber(S.ArcSpan) or DEFAULTS.ArcSpan, 30, 180)
-  S.Segments = clamp(math.floor((tonumber(S.Segments) or DEFAULTS.Segments) + 0.5), 8, 96)
-  S.BrushJitter = clamp(tonumber(S.BrushJitter) or DEFAULTS.BrushJitter, 0, 1)
-  S.StrokeOverlap = clamp(tonumber(S.StrokeOverlap) or DEFAULTS.StrokeOverlap, 1, 24)
-  S.BarOpacity = clamp(tonumber(S.BarOpacity) or DEFAULTS.BarOpacity, 0.05, 1)
-  S.TrackOpacity = clamp(tonumber(S.TrackOpacity) or 0.45, 0, 1)
-  S.GhostOpacity = clamp(tonumber(S.GhostOpacity) or 0.55, 0, 1)
-  S.GhostSpeed = clamp(tonumber(S.GhostSpeed) or 0.35, 0.01, 3.0)
-  S.TipScale = clamp(tonumber(S.TipScale) or DEFAULTS.TipScale, 0.3, 3)
-  S.TipAngle = clamp(tonumber(S.TipAngle) or -15, -90, 90)
-  S.WarnThresholdHp = clamp(tonumber(S.WarnThresholdHp) or 0.30, 0, 1)
-  S.WarnThresholdQi = clamp(tonumber(S.WarnThresholdQi) or 0.25, 0, 1)
-  S.WarnFlashSpeed = clamp(tonumber(S.WarnFlashSpeed) or 1.8, 0.2, 8)
-  S.WarnFlashAmount = clamp(tonumber(S.WarnFlashAmount) or 0.65, 0, 1)
-  S.DisplayMode = tostring(S.DisplayMode or 'both'):lower()
+  S.FollowSmoothing = ranged(S, 'FollowSmoothing', 0, 1.0)
+  S.FixedAnchorX = ranged(S, 'FixedAnchorX', 0, 1)
+  S.FixedAnchorY = ranged(S, 'FixedAnchorY', 0, 1)
+  S.AnchorHeight = ranged(S, 'AnchorHeight', -100, 300)
+  S.AnchorOffsetX = ranged(S, 'AnchorOffsetX', -600, 600)
+  S.AnchorOffsetY = ranged(S, 'AnchorOffsetY', -600, 600)
+  S.Radius = ranged(S, 'Radius', 60, 600, true)
+  S.Thickness = ranged(S, 'Thickness', 2, 30, true)
+  S.ArcSpan = ranged(S, 'ArcSpan', 30, 180)
+  S.Segments = ranged(S, 'Segments', 8, 96, true)
+  S.BrushJitter = ranged(S, 'BrushJitter', 0, 1)
+  S.StrokeOverlap = ranged(S, 'StrokeOverlap', 1, 24)
+  S.BarOpacity = ranged(S, 'BarOpacity', 0.05, 1)
+  S.TrackOpacity = ranged(S, 'TrackOpacity', 0, 1)
+  S.GhostOpacity = ranged(S, 'GhostOpacity', 0, 1)
+  S.GhostSpeed = ranged(S, 'GhostSpeed', 0.01, 3.0)
+  S.TipScale = ranged(S, 'TipScale', 0.3, 3)
+  S.TipAngle = ranged(S, 'TipAngle', -90, 90)
+  S.WarnThresholdHp = ranged(S, 'WarnThresholdHp', 0, 1)
+  S.WarnThresholdQi = ranged(S, 'WarnThresholdQi', 0, 1)
+  S.WarnFlashSpeed = ranged(S, 'WarnFlashSpeed', 0.2, 8)
+  S.WarnFlashAmount = ranged(S, 'WarnFlashAmount', 0, 1)
+  S.DisplayMode = tostring(S.DisplayMode or DEFAULTS.DisplayMode):lower()
   if S.DisplayMode ~= 'hp' and S.DisplayMode ~= 'qi' and S.DisplayMode ~= 'off' then
-    S.DisplayMode = 'both'
+    S.DisplayMode = DEFAULTS.DisplayMode
   end
-  S.Visibility = tostring(S.Visibility or 'dynamic'):lower()
-  if S.Visibility ~= 'always' and S.Visibility ~= 'hud' then S.Visibility = 'dynamic' end
-  S.HideDelay = clamp(tonumber(S.HideDelay) or DEFAULTS.HideDelay, 0, 30)
-  S.MedicineHudX = clamp(tonumber(S.MedicineHudX) or -1, -10000, 20000)
-  S.MedicineHudY = clamp(tonumber(S.MedicineHudY) or -1, -10000, 20000)
-  S.UltHudX = clamp(tonumber(S.UltHudX) or -1, -10000, 20000)
-  S.UltHudY = clamp(tonumber(S.UltHudY) or -1, -10000, 20000)
+  S.Visibility = tostring(S.Visibility or DEFAULTS.Visibility):lower()
+  if S.Visibility ~= 'hud' then S.Visibility = DEFAULTS.Visibility end
+  S.HideDelay = ranged(S, 'HideDelay', 0, 30)
+  S.MedicineHudX = ranged(S, 'MedicineHudX', -10000, 20000)
+  S.MedicineHudY = ranged(S, 'MedicineHudY', -10000, 20000)
+  S.UltHudX = ranged(S, 'UltHudX', -10000, 20000)
+  S.UltHudY = ranged(S, 'UltHudY', -10000, 20000)
   local ENTRIES = { 'Med1', 'Med2', 'Ult1', 'Ult2' }
   for _, id in ipairs(ENTRIES) do
-    S[id .. 'OffX'] = clamp(math.floor((tonumber(S[id .. 'OffX']) or 0) + 0.5), -800, 800)
-    S[id .. 'OffY'] = clamp(math.floor((tonumber(S[id .. 'OffY']) or 0) + 0.5), -800, 800)
+    S[id .. 'OffX'] = ranged(S, id .. 'OffX', -800, 800, true)
+    S[id .. 'OffY'] = ranged(S, id .. 'OffY', -800, 800, true)
   end
-  S.IconScale = clamp(tonumber(S.IconScale) or DEFAULTS.IconScale, 0.5, 3)
+  S.IconScale = ranged(S, 'IconScale', 0.5, 3)
   -- -1 表示「读一次条的宽度并沿用」；其他值就是宽度。
-  S.HudBarWidth = math.floor(clamp(tonumber(S.HudBarWidth) or -1, -1, 4000) + 0.5)
+  S.HudBarWidth = math.floor(ranged(S, 'HudBarWidth', -1, 4000) + 0.5)
   S.HpColor = Config.normalizeHex(S.HpColor, DEFAULTS.HpColor)
   S.QiColor = Config.normalizeHex(S.QiColor, DEFAULTS.QiColor)
   S.TrackColor = Config.normalizeHex(S.TrackColor, DEFAULTS.TrackColor)
   S.WarnColor = Config.normalizeHex(S.WarnColor, DEFAULTS.WarnColor)
   -- 语言是 Scripts/lang 下的一个文件，以 culture 命名，所以只保留
   -- 文件名能容纳的字符。空值保持为空：它表示「尚未选择」。
-  local lang = tostring(S.Lang or ''):gsub('[^%w_%.%-]', '')
+  local lang = tostring(S.Lang or DEFAULTS.Lang):gsub('[^%w_%.%-]', '')
   if #lang > 24 then lang = lang:sub(1, 24) end
   S.Lang = lang
   -- 预设文件名按原样保留：只做去空白和长度截断。
   local preset = tostring(S.Preset or DEFAULTS.Preset):gsub('^%s+', ''):gsub('%s+$', '')
   if preset == '' then preset = DEFAULTS.Preset end
   S.Preset = preset:sub(1, 48)
-  S.MenuKey = tostring(S.MenuKey or 'F2'):upper()
+  S.MenuKey = tostring(S.MenuKey or DEFAULTS.MenuKey):upper()
   S.Texture = tostring(S.Texture or DEFAULTS.Texture)
   S.InkMaterial = tostring(S.InkMaterial or DEFAULTS.InkMaterial)
   S.TipTexture = tostring(S.TipTexture or DEFAULTS.TipTexture)
@@ -340,6 +351,7 @@ function Config.sanitize(S)
   S.PinHudBars = parseBool(S.PinHudBars)
   S.HudNumbers = parseBool(S.HudNumbers)
   S.HudNumberStyle = tostring(S.HudNumberStyle or DEFAULTS.HudNumberStyle):lower()
+  -- 'side' 是 center 之外的另一个合法枚举值，不是默认值。
   if S.HudNumberStyle ~= 'center' then S.HudNumberStyle = 'side' end
   S.Debug = parseBool(S.Debug)
   return S
@@ -420,7 +432,7 @@ function Config.load()
     if values.Visibility == nil then
       if legacy.ShowInCombat then S.Visibility = 'dynamic'
       elseif legacy.FollowHud then S.Visibility = 'hud'
-      else S.Visibility = 'always' end
+      else S.Visibility = 'dynamic' end
     end
   end
   Config.sanitize(S)
@@ -467,17 +479,72 @@ local function writeValues(path, S, omit)
       lines[#lines + 1] = key .. ' = ' .. formatValue(S[key])
     end
   end
-  local out = io.open(path, 'w')
+  -- 临时文件 + 原子替换：直接以 'w' 打开原文件，写一半被打断会丢配置。
+  -- Windows 的 os.rename 不允许覆盖已存在文件，所以先把原文件挪成 .bak，
+  -- 再把临时文件挪到目标；任何一步失败都把 .bak 还回去，最坏留下一份备份。
+  local tmp, backup = path .. '.tmp', path .. '.bak'
+  local out = io.open(tmp, 'w')
   if not out then
-    Config.log('cannot write ' .. path)
+    Config.log('cannot write ' .. tmp)
     return false
   end
-  out:write(table.concat(lines, '\n') .. '\n')
-  out:close()
+  local wrote = pcall(function() out:write(table.concat(lines, '\n') .. '\n') end)
+  pcall(function() out:close() end)
+  if not wrote then
+    pcall(os.remove, tmp)
+    Config.log('cannot finish writing ' .. tmp)
+    return false
+  end
+  local old = io.open(path, 'r')
+  if old then old:close() end
+  pcall(os.remove, backup)
+  -- os.rename 失败时返回 nil 而不是抛异常，pcall 的第一个返回值永远是 true，
+  -- 必须取它的第二个返回值才能判断成败，否则失败时会误删 .bak 并假装成功。
+  local _, backed = pcall(os.rename, path, backup)
+  if old and not backed then
+    pcall(os.remove, tmp)
+    Config.log('cannot back up ' .. path)
+    return false
+  end
+  local _, moved = pcall(os.rename, tmp, path)
+  if not moved then
+    if old then pcall(os.rename, backup, path) end
+    pcall(os.remove, tmp)
+    Config.log('cannot replace ' .. path)
+    return false
+  end
+  if old then pcall(os.remove, backup) end
   return true
 end
 
+-- 只有预设文件是差异文件：保存时只写「与默认值不同」的键。
+-- 用 formatValue 比较而不是直接比值：差异应以写进文件的那串文本为准，
+-- 例如 0.4500001 写盘是 0.45，和默认值 0.45 就没有区别。
+--   keep 里的键无条件保留（Preset 显示名）；
+--   omit 里的键连老文件里的旧行也一并删掉（玩家级配置）。
+-- drop 会传给 writeValues 的 omit 参数，于是旧的全量预设保存一次就
+-- 自然瘦成差异文件，不需要玩家手工删行。
+local function diffValues(S, keep, omit)
+  local diff, drop = {}, {}
+  for key, value in pairs(S) do
+    if keep[key] or DEFAULTS[key] == nil or
+       formatValue(value) ~= formatValue(DEFAULTS[key]) then
+      diff[key] = value
+    else
+      drop[key] = true
+    end
+  end
+  for key in pairs(omit) do
+    diff[key] = nil
+    drop[key] = true
+  end
+  return diff, drop
+end
+
 function Config.save(S)
+  -- settings.ini 必须写全键：这是玩家不打开配置界面时唯一的配置入口
+  -- （界面打不开、按键失效、无 UI 环境下都要能直接编辑这个文件）。
+  -- 它同时也是一份自带注释的完整快照，不要为了省行数改成差异文件。
   return writeValues(Config.INI, S)
 end
 
@@ -485,6 +552,32 @@ end
 -- 预设
 
 local PRESET_MAX = 64
+
+-- 玩家级配置：属于玩家本人，不属于任何一套预设。它们只在 settings.ini
+-- 里读写，切换 / 保存预设都不会带上它们。
+--   Lang      菜单语言（首次使用时按游戏语言自动选）
+--   MenuKey   打开菜单的按键（启动时绑定一次，运行中改值不会重新绑定）
+--   Preset    当前选中的预设文件名；预设文件里同名的一行是「显示名」，语义不同
+-- 读取与写入预设、以及 Menu:applyPreset 都从这里取名单，避免各写一份漏掉某个键。
+local PLAYER_KEYS = { Lang = true, MenuKey = true, Preset = true }
+Config.PLAYER_KEYS = PLAYER_KEYS
+
+-- 每个预设都「基于默认值」：文件里只写与默认不同的键，读取时先用
+-- DEFAULTS 打底、再用文件里的值覆盖。于是出厂 preset1.ini 可以只写显示名，
+-- 玩家保存过的全量预设也不会被改动（每个键文件里都有值）。
+local function withDefaults(values)
+  -- 老预设文件里可能残留 Lang / MenuKey（早期版本保存的是全量快照）。
+  -- 直接丢掉：它们不该出现在预设里，更不能覆盖玩家当前设置。
+  -- Preset 留着，它在预设文件里是显示名，listPresets 要用。
+  values.Lang = nil
+  values.MenuKey = nil
+  for key, value in pairs(DEFAULTS) do
+    if not PLAYER_KEYS[key] and values[key] == nil then
+      values[key] = value
+    end
+  end
+  return values
+end
 
 -- 文件靠从 preset1.ini 往上数来找，遇到第一个没有文件的编号就停，
 -- 因此不需要列目录。key 是文件名（不含扩展名），也是 settings.ini
@@ -495,6 +588,7 @@ function Config.listPresets()
   for index = 1, PRESET_MAX do
     local values = readValues(Config.presetPath(index))
     if values == nil then break end
+    values = withDefaults(values)
     local name = tostring(values.Preset or '')
     if name == '' then name = '预设 ' .. index end
     list[#list + 1] = { index = index, key = Config.presetKey(index), name = name, values = values }
@@ -519,15 +613,15 @@ function Config.nextPresetSlot(list)
   return { index = index, key = Config.presetKey(index), name = '预设 ' .. index }
 end
 
--- 把当前数值存成一个预设。Preset 行始终保存这个文件
--- 自己的显示名，而不是当前恰好选中的那个预设。语言属于
--- 玩家而不属于预设，所以既不写入也不保留。
+-- 把当前数值存成一个差异预设：只写与 DEFAULTS 不同的键。
+-- Preset 行始终保存这个文件自己的显示名，而不是当前恰好选中的那个预设。
+-- 玩家级配置（Lang / MenuKey）既不写入也不保留：omit 会把老文件里
+-- 残留的行一并丢掉，免得它们跟着预设到处跑、日后又覆盖玩家的设置。
 function Config.savePreset(preset, S)
-  local copy = {}
-  for key, value in pairs(S) do copy[key] = value end
-  copy.Preset = preset.name
-  copy.Lang = nil
-  return writeValues(Config.presetPath(preset.index), copy, { Lang = true })
+  local diff, drop = diffValues(S, { Preset = true },
+                                { Lang = true, MenuKey = true })
+  diff.Preset = preset.name
+  return writeValues(Config.presetPath(preset.index), diff, drop)
 end
 
 return Config
