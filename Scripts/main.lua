@@ -90,44 +90,178 @@ local function widgetChainVisible(widget, skipViewportCheck)
   return factor > 0.01, factor, false
 end
 
-local function findHudWidget()
+-- HUD 显隐探测。FindAllOf 要遍历全部 UObject，是全 MOD 单次最贵的操作，
+-- 而 hudVisible() 常态下每秒要问 20 次，所以候选控件只扫描一次并留下清单。
+--
+-- 两件事必须分开记：
+--   · 清单（留一次扫描结果）可以缓存，否则每帧都要遍历全部 UObject；
+--   · 结论（此刻算不算显示）绝不能缓存，游戏换 HUD 实例之后旧实例往往仍然
+--     valid()、类名也对，只是已经离场，父链不透明度恒为 0 —— 一旦把「上次选中
+--     的那个控件」当成结论钉死，「HUD 隐藏」就再也不变，弧线和图标只在菜单
+--     打开（强制显示）时才出现。
+--
+-- 分层是硬要求：血条控件命中就用血条控件，只有它一个有效实例都没有时才退到
+-- 前台布局。两者不能放进同一个「或」里 —— 前台布局在游戏里常驻可见，混在
+-- 一起会让 MOD 永远认为 HUD 在显示，从而不再跟着 HUD 一起隐藏。
+local HUD_TIERS = { 'WB_PlayerHPBar_V1_C', 'W_FrontEndHUDLayout_C' }
+-- 隐藏状态下重扫清单的最小间隔。只有「清单空了 / 候选失效 / PC-Pawn 换了 /
+-- 隐藏超过 HUD_LIST_TTL」才重扫，光「这一刻不可见」不算理由 —— 否则常态满血
+-- 隐藏时每秒要扫 4~5 次，既浪费又正好和读档换世界撞在一起。
+local HUD_RESCAN_GAP = 0.25
+local HUD_LIST_TTL = 1.0
+-- 关卡加载期间完全不碰游戏控件：这时候旧世界的 UObject 正在被销毁，
+-- 读它们的属性会直接崩在引擎里（crash dump 就是 UE4SS 层的 ACCESS_VIOLATION，
+-- 读到的地址是野指针）。PreHook 一进来就清空清单并挂起探测，
+-- PostHook 恢复；万一 PostHook 没来，最多 LOAD_GUARD_MAX 秒后自动解开。
+local LOAD_GUARD_MAX = 20
+-- PostHook 之后新世界的 UMG 还在搭建，且引擎的垃圾回收往往在这之后才把旧世界的
+-- 对象真正释放。这段时间照旧什么都不读，让世界先落定。
+local LOAD_SETTLE = 1.0
+-- 沉降之后的第二道门：图标与原生条要做「遍历控件树、读材质标量数组」这类重活。
+-- 判据是「游戏 HUD 此刻在不在屏幕上」——不是「出现了多久」。
+--   · HUD 在渲染，说明新世界的 UMG 已经构建完毕，控件是稳定的；
+--   · 反过来，控件存在但 HUD 还没显示，正是「构建中 / 即将被回收」的中间态，
+--     崩溃就发生在这段时间（旧版实测拆的 dump：TArray 越界检查里读到坏指针）。
+-- 这里故意不留观察窗口：试过「连续可见 1.5 秒」「连续可见 3 帧」，玩家都能看见
+-- 原生条在眼前从游戏长度缩到钉住长度（HUD 出现的那一刻正是他开始看它的时刻）。
+-- HUD 一出现就是安全的，所以当帧放行。
+-- 兜底时长：停在主界面 / 菜单里 HUD 一直不出现时，不能让重模块永远不干活。
+local SETTLE_FALLBACK = 10.0
+local hudPick = { tiers = { {}, {} }, count = 0, at = -HUD_RESCAN_GAP, ready = false,
+  dirty = true, stale = false, loading = false, loadingAt = 0, settleAt = 0,
+  pc = nil, pawn = nil }
+-- 重模块（图标 / 原生条）是否已恢复；heavyHeld 记录「上锁时已经把图标收过一次」。
+local heavyReady, heavyHeld = true, false
+
+local function clearHudPick()
+  for t = 1, #hudPick.tiers do
+    local tier = hudPick.tiers[t]
+    for i = #tier, 1, -1 do tier[i] = nil end
+  end
+  hudPick.count, hudPick.ready, hudPick.dirty, hudPick.stale = 0, false, true, false
+  hudPick.pc, hudPick.pawn = nil, nil
+end
+
+local function collectTier(cls, pcName, out)
+  local ok, list = pcall(function() return FindAllOf(cls) end)
+  if not ok or type(list) ~= 'table' then return end
+  local items, scores = {}, {}
+  for _, widget in ipairs(list) do
+    if valid(widget) then
+      local okN, name = pcall(function() return widget:GetFullName() end)
+      if okN and type(name) == 'string' and not name:find('Default__', 1, true) then
+        -- 打分只用来排顺序：属于本机 PlayerController 的优先（2 分），
+        -- 此刻没被 Collapsed/Hidden 的次之（1 分）。是否真的可见由 probeTier
+        -- 逐个走父链确认，这个启发式不参与结论。
+        local score = 0
+        if pcName ~= nil then
+          local okO, owner = pcall(function() return widget:GetOwningPlayer() end)
+          if okO and valid(owner) then
+            local okON, ownerName = pcall(function() return owner:GetFullName() end)
+            if okON and ownerName == pcName then score = 2 end
+          end
+        end
+        local okV, vis = pcall(function() return widget.Visibility end)
+        if okV and not (vis == VIS.Collapsed or vis == VIS.Hidden) then
+          score = score + 1
+        end
+        items[#items + 1] = widget
+        scores[#scores + 1] = score
+      end
+    end
+  end
+  -- 插入排序按分数降序。候选只有个位数，不值得为它起一个比较闭包。
+  for i = 2, #items do
+    local widget, score = items[i], scores[i]
+    local j = i - 1
+    while j >= 1 and scores[j] < score do
+      items[j + 1], scores[j + 1] = items[j], scores[j]
+      j = j - 1
+    end
+    items[j + 1], scores[j + 1] = widget, score
+  end
+  for i = 1, #items do out[i] = items[i] end
+end
+
+local function buildHudList()
   local pc = localPC()
   local pcName = nil
   if valid(pc) then
     local ok, name = pcall(function() return pc:GetFullName() end)
     if ok then pcName = name end
   end
-  local function pick(list)
-    local best, bestScore = nil, -1
-    for _, widget in ipairs(list or {}) do
-      if valid(widget) then
-        local ok, name = pcall(function() return widget:GetFullName() end)
-        if ok and type(name) == 'string' and not name:find('Default__', 1, true) then
-          local owned = false
-          if pcName ~= nil then
-            local okO, owner = pcall(function() return widget:GetOwningPlayer() end)
-            if okO and valid(owner) then
-              local okN, ownerName = pcall(function() return owner:GetFullName() end)
-              owned = okN and ownerName == pcName
-            end
-          end
-          -- 打分只用一次 Visibility 读取。以前这里对**每个候选**都跑
-          -- widgetChainVisible（最多 8 层父链 × 3 次反射 ≈ 24 次 pcall），
-          -- 只为了给 score 加 1；真正的可见性判定由 hudVisible() 在选中
-          -- 的那个 widget 上做一次完整链检查，结果不受这个排序启发式影响。
-          local shown = false
-          local okV, vis = pcall(function() return widget.Visibility end)
-          if okV then shown = not (vis == VIS.Collapsed or vis == VIS.Hidden) end
-          local score = (owned and 2 or 0) + (shown and 1 or 0)
-          if score > bestScore then best, bestScore = widget, score end
-        end
-      end
-    end
-    return best
+  local total = 0
+  for t = 1, #HUD_TIERS do
+    local tier = hudPick.tiers[t] or {}
+    for i = #tier, 1, -1 do tier[i] = nil end
+    collectTier(HUD_TIERS[t], pcName, tier)
+    hudPick.tiers[t] = tier
+    total = total + #tier
   end
-  local widget = pick(FindAllOf('WB_PlayerHPBar_V1_C'))
-  if valid(widget) then return widget end
-  return pick(FindAllOf('W_FrontEndHUDLayout_C'))
+  hudPick.count, hudPick.at, hudPick.ready = total, os.clock(), true
+  hudPick.dirty = false
+  hudPick.pc, hudPick.pawn = pc, prop(pc, 'Pawn')
+  if debugOn then
+    log('hud pick: ' .. #hudPick.tiers[1] .. '+' .. #hudPick.tiers[2] .. ' candidate(s)')
+  end
+end
+
+-- 同一层里按分数顺序取「第一个没被硬隐藏（Collapsed / Hidden）的候选」：
+-- 常态下就是第一个，一次父链检查就够；游戏换了实例时旧实例先 Collapsed，
+-- 自然落到新实例上。返回第 4 个值表示这一层到底有没有有效实例，
+-- 用来决定要不要退到下一层；顺手把「有候选已经失效」记到 stale 上。
+local function probeTier(items)
+  local firstVisible, firstFactor, firstHidden = nil, 0, true
+  local any = false
+  for i = 1, #items do
+    local widget = items[i]
+    if valid(widget) then
+      any = true
+      local visible, factor, hardHidden = widgetChainVisible(widget, true)
+      if not hardHidden then return visible, factor, hardHidden, true end
+      if firstVisible == nil then firstVisible, firstFactor, firstHidden = visible, factor, hardHidden end
+    else
+      hudPick.stale = true
+    end
+  end
+  if firstVisible ~= nil then return firstVisible, firstFactor, firstHidden, true end
+  return nil, 0, true, any
+end
+
+-- 返回：是否显示 / 连续不透明度 / 是否被硬隐藏（Collapsed、Hidden）。
+-- 第一个返回值为 nil 表示连候选控件都没有（读图、进游戏前）。
+local function probeHud(now)
+  if hudPick.loading then
+    -- 加载中：清单已经清空，绝不回去读旧对象的任何属性。
+    if now - hudPick.loadingAt > LOAD_GUARD_MAX then hudPick.loading = false end
+    return nil, 0, true
+  end
+  if now < hudPick.settleAt then return nil, 0, true end
+
+  if hudPick.ready then
+    -- 换了 PlayerController 或 Pawn（读图、复活、切场景）必然换了 HUD 实例，
+    -- 直接作废清单，不必等可见性验证失败。
+    local pc = localPC()
+    local pawn = valid(pc) and prop(pc, 'Pawn') or nil
+    if pc ~= hudPick.pc or pawn ~= hudPick.pawn then hudPick.dirty = true end
+  end
+  if (not hudPick.ready or hudPick.dirty) and now - hudPick.at >= HUD_RESCAN_GAP then
+    pcall(buildHudList)
+  end
+
+  hudPick.stale = false
+  for t = 1, #HUD_TIERS do
+    local visible, factor, hardHidden, any = probeTier(hudPick.tiers[t])
+    if any then
+      -- 只有隐藏状态下才按 TTL 定期重扫：隐藏时游戏可能换了新实例，
+      -- 而常态显示时一个候选就够用，不必再花 FindAllOf 的钱。
+      hudPick.dirty = hudPick.stale
+        or (not visible and now - hudPick.at >= HUD_LIST_TTL)
+      return visible, factor, hardHidden
+    end
+  end
+  hudPick.dirty = true
+  return nil, 0, true
 end
 
 ---------------------------------------------------------------------------------------------------
@@ -169,6 +303,15 @@ local menu = Menu.new(S, { log = log, alert = alert, onChange = onChange })
 local icons = Icons.new(S, rawLog)
 local hudBars = HudBars.new(S, rawLog)
 
+-- 崩溃现场定位用：只在 Debug 打开时，按「子系统切换」打一行。真崩了以后
+-- 日志最后一行就是崩之前正在跑的子系统，比事后猜便宜得多。
+local lastMark = nil
+local function mark(name)
+  if not debugOn or name == lastMark then return end
+  lastMark = name
+  log('phase: ' .. name)
+end
+
 ---------------------------------------------------------------------------------------------------
 -- 运行时状态
 
@@ -178,6 +321,46 @@ end
 
 local RT = { alive = true, lastTick = nil }
 PBZARCS_RUNTIME = RT
+
+-- 读档 / 过图的保护期。别在这里读任何游戏控件：旧世界的 UObject 正在被销毁，
+-- 读属性会把野指针交给引擎（实测就是读档瞬间 ACCESS_VIOLATION 崩在 UE4SS.dll）。
+-- 只有「有 PostHook 能放行」时才挂起探测，否则宁可不清也不要把自己锁在隐藏状态。
+local loadPostAvailable = RegisterLoadMapPostHook ~= nil
+if RegisterLoadMapPreHook then
+  local ok, err = pcall(function()
+    RegisterLoadMapPreHook(function()
+      -- 这个回调在引擎的 LoadMap 里跑，只做纯 Lua 的记账：丢掉候选清单、
+      -- 挂起探测。真正的隐藏交给下一个 step tick，别在这个时机动 UMG。
+      hudPick.loading, hudPick.loadingAt = loadPostAvailable, os.clock()
+      -- 万一这个版本没有 PostHook，就从这里开始算沉降，别让保护期一解开
+      -- 就立刻去重建。PostHook 来了会再刷新一次。
+      hudPick.settleAt = os.clock() + LOAD_SETTLE
+      -- 图标和原生条重新上锁：这次的崩溃就是它们在新世界刚落地时去遍历
+      -- 控件树撞上旧对象回收。等新世界的 HUD 重新出现在屏幕上再放行。
+      heavyReady, heavyHeld = false, false
+      clearHudPick()
+      -- 统计模块 / 图标 / 游戏条里的缓存同样全是旧世界的对象，一起作废。
+      -- 只丢引用，不还原、不 RemoveFromParent：那些控件此刻可能正在被销毁。
+      if RT.onWorldTeardown then RT.onWorldTeardown() end
+      log('hud pick: cleared (map load start)')
+    end)
+  end)
+  if not ok then alert('LoadMapPreHook failed: ' .. tostring(err)) end
+end
+if RegisterLoadMapPostHook then
+  local ok, err = pcall(function()
+    RegisterLoadMapPostHook(function()
+      hudPick.loading = false
+      -- 新世界的 HUD 要过一会儿才真正建好；这段时间照样什么都不读，
+      -- 免得在「半初始化」的控件上取属性。
+      hudPick.settleAt = os.clock() + LOAD_SETTLE
+      heavyReady, heavyHeld = false, false
+      clearHudPick()
+      log('hud pick: resumed (map load done)')
+    end)
+  end)
+  if not ok then alert('LoadMapPostHook failed: ' .. tostring(err)) end
+end
 
 local master = 0
 local lastScale = 1
@@ -191,6 +374,8 @@ local hudSeenVisible = false
 local hudHiddenSince = nil
 local fullSince = { hp = nil, qi = nil }
 local FULL_RATIO = 0.995
+-- 统计读数短暂沿用上一帧的最长时间（只用于盖住复活这种一两帧空档）。
+local HOLD_SNAPSHOT_MAX = 0.5
 -- 实机结论：0.2 有明显延迟；0.05 一直跟手；再压到 0.01 会让常态几乎每帧
 -- 都跑一次全量 FindAllOf，帧耗时抖动 + 采样周期逼近帧间隔（60fps≈16.7ms）
 -- 造成相位不稳，反而偶发不跟手。固定 0.05，别再调这个值。
@@ -207,6 +392,24 @@ local lastMenuOpen = false
 local traceTicks = 0
 local pending = { toggle = false, click = false, rclick = false, mclick = false,
   close = false }
+
+-- 换世界时把「跨帧持有的旧对象」全部作废。这一步是这次崩溃的正解：
+-- 上一版只清了 HUD 候选清单，统计模块的快照、图标缓存的槽位控件、
+-- 游戏条绑定的材质都还指着旧世界；换图后引擎把它们销毁，我们再去做
+-- ProcessEvent / 读属性，就是 ACCESS_VIOLATION（crash dump 落在 UE4SS.dll）。
+-- 这里只做 Lua 侧的引用清理，不调用任何 UObject 方法。
+RT.onWorldTeardown = function()
+  heldSnapshot, heldAt = nil, nil
+  pcall(function() stats:forget() end)
+  pcall(function() icons:forget() end)
+  pcall(function() hudBars:forget() end)
+  follow.pawn = nil
+  follow.viewport, follow.viewportAt = nil, -100
+  hudCacheAt = -1
+  hudSeenVisible, hudHiddenSince = false, nil
+  hudBaseAlpha = 0
+  fullSince.hp, fullSince.qi = nil, nil
+end
 
 cleanupWidgets('PBZArcs_Root_')
 cleanupWidgets('PBZArcs_Menu')
@@ -238,31 +441,31 @@ local function readSnapshot(now)
     heldSnapshot, heldAt = snapshot, nil
     return snapshot
   end
-  if heldSnapshot then
+  -- 短暂沿用上一帧的读数，只为了盖住复活、属性集重建那种一两帧的空档。
+  -- 绝不能让它顺着换世界活下来：快照里存着 PlayerController 和 Pawn，
+  -- 旧世界一销毁它们就是野指针，Follow 还会拿 Pawn 去调 K2_GetActorLocation
+  -- （ProcessEvent），那就是硬崩。
+  if heldSnapshot and valid(heldSnapshot.pc) and valid(heldSnapshot.pawn) then
     if heldAt == nil then heldAt = now end
-    if now - heldAt < 1.0 then return heldSnapshot, err end
-    heldSnapshot, heldAt = nil, nil
+    if now - heldAt < HOLD_SNAPSHOT_MAX then return heldSnapshot, err end
   end
+  heldSnapshot, heldAt = nil, nil
   return nil, err
 end
 
-local function hudVisible()
+local function hudVisible(force)
   local now = os.clock()
   -- 淡出/淡入过程中逐帧重算；常态才走 0.05s 缓存。
+  -- force 用于「重模块还在等 HUD 出现」的那段时间：HUD 可能是硬切出现的（没有淡入），
+  -- 走 0.05s 缓存会晚 3 帧才认出来，那 3 帧足够让玩家看见原生条在缩短。
   local base = hudBaseAlpha > HUD_FADE_MIN and hudBaseAlpha or 1
   local fading = hudCacheFactor ~= nil and hudCacheFactor > HUD_FADE_MIN
     and hudCacheFactor < base * HUD_FADE_MAX
-  if not fading and now - hudCacheAt < HUD_POLL_INTERVAL then
+  if not force and not fading and now - hudCacheAt < HUD_POLL_INTERVAL then
     return hudCacheVisible, hudCacheFactor, hudCacheHidden
   end
   hudCacheAt = now
-  local widget = findHudWidget()
-  if not valid(widget) then
-    -- HUD 容器不存在（读图、进游戏前）按隐藏处理。
-    hudCacheVisible, hudCacheFactor, hudCacheHidden = nil, 1, true
-    return nil, 1, true
-  end
-  local visible, factor, hardHidden = widgetChainVisible(widget, true)
+  local visible, factor, hardHidden = probeHud(now)
   hudCacheVisible, hudCacheFactor, hudCacheHidden = visible, factor, hardHidden
   return visible, factor, hardHidden
 end
@@ -316,6 +519,29 @@ local function step(dt)
     hudCacheAt = -1
   end
 
+  -- 读档 / 过图期间什么都不读：旧世界的 UObject 正在被销毁，这时候读属性会把
+  -- 野指针交给引擎（实测 crash dump 就是 UE4SS 层的 ACCESS_VIOLATION）。
+  -- PostHook 之后还留一段沉降期：新世界的 HUD 还没搭完，引擎的回收也常在
+  -- 这时才把旧世界的对象真正释放。只把弧线自己收掉 —— 菜单、图标都是 MOD
+  -- 自己的控件，不受世界影响。
+  if hudPick.loading and now - hudPick.loadingAt > LOAD_GUARD_MAX then
+    -- PostHook 没来（或来晚了）：解开保护期的同时重新起算沉降，
+    -- 否则这里会立刻去重建，正好撞上引擎回收旧对象的那一段。
+    hudPick.loading = false
+    hudPick.settleAt = now + LOAD_SETTLE
+    heavyReady, heavyHeld = false, false
+  end
+  if hudPick.loading or now < hudPick.settleAt then
+    master = 0
+    if renderAlive() then
+      render:setMaster(0)
+      render:setBarShown('hp', false)
+      render:setBarShown('qi', false)
+    end
+    pcall(function() icons:setShown(false, 0) end)
+    return false
+  end
+
   if not renderAlive() then
     if now >= nextBuildTry then
       nextBuildTry = now + 1.0
@@ -327,6 +553,7 @@ local function step(dt)
     if not ok then alert('HUD rebuild failed: ' .. tostring(err)) end
   end
 
+  mark('stats')
   local snapshot, statsError = readSnapshot(now)
   local trace = S.Debug and snapshot ~= nil and traceTicks < 3
   if trace then
@@ -334,6 +561,7 @@ local function step(dt)
     log('trace ' .. traceTicks .. ': stats ok')
   end
 
+  mark('follow')
   local anchorX, anchorY, onscreen
   if snapshot then
     local fx, fy, visible, _, scale = follow:update(snapshot, dt)
@@ -361,7 +589,9 @@ local function step(dt)
     end
   end
 
-  local hudShown, hudOpacity = hudVisible()
+  mark('hud')
+  -- 等门期间不用 0.05s 采样缓存：HUD 硬切出现时要当帧就认出来。
+  local hudShown, hudOpacity = hudVisible(not heavyReady)
   -- 游戏 HUD 的连续不透明度就是「淡出开始」的最早状态：RenderOpacity 刚从
   -- 1 掉下来的那一帧游戏才启动淡出，等到 Visibility 变 Hidden 已经是动画结束，
   -- 那时才让 MOD 开始自己的淡出，必然比游戏晚一整段动画。这里全程镜像这条曲线。
@@ -419,25 +649,54 @@ local function step(dt)
   end
   if trace then log('trace ' .. traceTicks .. ': visible ' .. tostring(visible)) end
 
-  local iconsOk, iconsErr = pcall(function()
-    icons:update(dt, {
-      menuOpen = menu.open,
-      -- 图标与弧线共用同一条游戏 HUD 淡出曲线，不再等「完全隐藏」这个布尔量。
-      hudShown = menu.open or hudMirror > 0.01,
-      hudFade = menu.open and 1 or hudMirror,
-      -- 精纯杀气的充能比例（UltimateCharge / Max），图标模块用它画充能条。
-      ultRatio = ultRatio,
-    })
-  end)
-  if not iconsOk and now - lastIconsError > 5 then
-    lastIconsError = now
-    alert('icons update: ' .. tostring(iconsErr))
+  -- 重模块门控。沉降期只是「按时间等」，这一段是「按信号等」：判据是游戏 HUD
+  -- 此刻在不在屏幕上（不是它在屏幕上多久）。HUD 在渲染就说明新世界的 UMG 已经
+  -- 搭好、控件稳定；反过来「控件存在但 HUD 没显示」才是构建中/即将回收的中间态。
+  -- 没过门之前，图标与原生条一律不碰游戏控件（它们上一次的缓存已经在
+  -- onWorldTeardown 里丢干净了）。
+  if not heavyReady then
+    if hudOn then
+      -- 当帧放行：下面紧接着就会跑 icons / bars，玩家看到的第一帧原生条
+      -- 已经是钉好的长度，不会出现「先长后短」。
+      heavyReady = true
+      log(string.format('heavy modules resumed (hud on, after %.2fs)',
+        now - hudPick.settleAt))
+    elseif now - hudPick.settleAt >= SETTLE_FALLBACK then
+      -- 兜底：主界面 / 菜单里 HUD 一直不出现，也不能让原生条永远不干活。
+      heavyReady = true
+      log('heavy modules resumed (fallback)')
+    end
   end
 
-  local barsOk, barsErr = pcall(function() hudBars:update(dt, snapshot) end)
-  if not barsOk and now - lastBarsError > 5 then
-    lastBarsError = now
-    alert('hud bars update: ' .. tostring(barsErr))
+  mark('icons')
+  if heavyReady then
+    local iconsOk, iconsErr = pcall(function()
+      icons:update(dt, {
+        menuOpen = menu.open,
+        -- 图标与弧线共用同一条游戏 HUD 淡出曲线，不再等「完全隐藏」这个布尔量。
+        hudShown = menu.open or hudMirror > 0.01,
+        hudFade = menu.open and 1 or hudMirror,
+        -- 精纯杀气的充能比例（UltimateCharge / Max），图标模块用它画充能条。
+        ultRatio = ultRatio,
+      })
+    end)
+    if not iconsOk and now - lastIconsError > 5 then
+      lastIconsError = now
+      alert('icons update: ' .. tostring(iconsErr))
+    end
+  elseif not heavyHeld then
+    -- 只在刚上锁时收一次，别每帧都去动自己的控件。
+    heavyHeld = true
+    pcall(function() icons:setShown(false, 0) end)
+  end
+
+  mark('bars')
+  if heavyReady then
+    local barsOk, barsErr = pcall(function() hudBars:update(dt, snapshot) end)
+    if not barsOk and now - lastBarsError > 5 then
+      lastBarsError = now
+      alert('hud bars update: ' .. tostring(barsErr))
+    end
   end
 
   if renderAlive() then render:setBarShown('hp', hpShown); render:setBarShown('qi', qiShown) end
@@ -453,6 +712,7 @@ local function step(dt)
   end
   if master < 0.01 and target == 0 then master = 0 end
 
+  mark('render')
   if renderAlive() then
     render:setMaster(master)
     if trace then log('trace ' .. traceTicks .. ': master ' .. string.format('%.2f', master)) end
@@ -492,7 +752,10 @@ local function step(dt)
       lastScale, master, tostring(onscreen), tostring(visible), tostring(visibility),
       tostring(hpShown), tostring(qiShown), tonumber(S.HideDelay) or 3,
       -- HUD 的显隐和它当前的淡出程度分开打，图标跟着 HUD 走时能看出滞后在哪一侧。
-      string.format('%s/%.2f', tostring(hudShown), tonumber(hudOpacity) or -1),
+      -- cand 是当前候选清单里的控件数，带 * 表示这次的结论让它作废、等着重扫，
+      -- 带 L 表示正处在读档 / 过图的保护期（这段时间不碰游戏控件）。
+      string.format('%s/%.2f cand=%d%s%s', tostring(hudShown), tonumber(hudOpacity) or -1,
+        hudPick.count, hudPick.dirty and '*' or '', hudPick.loading and 'L' or ''),
       tostring(follow.methodIndex)))
     log('bars hp[' .. barInfo(hb) .. '] qi[' .. barInfo(qb) .. '] th=' .. tostring(S.Thickness) ..
       ' hpcol=' .. tostring(S.HpColor) .. ' qicol=' .. tostring(S.QiColor))
@@ -538,6 +801,8 @@ end
 
 function RT.shutdown()
   RT.alive = false
+  -- 卸载 / 热重载时把候选控件全部丢掉，别把 UObject 引用带出这次运行。
+  clearHudPick()
   -- 没打开过菜单就不要动输入状态：主界面热重载时无条件 setInput(false)
   -- 一样会把 bShowMouseCursor 清掉、把输入切成 GameOnly，让主界面失去鼠标。
   if menu.open then pcall(function() menu:setInput(false) end) end
@@ -552,13 +817,25 @@ function RT.shutdown()
   pcall(function() Config.closeLog() end)
 end
 
+-- MOD 每次 step 的工作量是固定的（约 0.3ms），而游戏帧率越高，每秒就要跑越多次：
+-- 744fps 时一秒跑 744 次，120fps 时只跑 120 次，画面上看不出任何区别 ——
+-- 弧线跟的锚点本身已经过 0.10s 的平滑，读数也只在 60Hz 量级变化。
+-- 所以把更新频率和帧率解绑：两次真正执行之间至少间隔 6ms（≈165fps），
+-- dt 取「距上次真正执行」的累计时间，动画 / 淡出 / 残影的时间轴因此完全不变。
+-- 6ms 是刻意选在 165fps 帧时间（6.06ms）之下：120/144/165 这类常见刷新率
+-- 一帧都不跳，只有更高帧率才会被压到 120~150Hz 的更新频率。
+-- 菜单打开时不节流：拖动读数、拖动滑块要跟手。
+local UPDATE_INTERVAL = 0.006
+
 local lastClock = nil
 local function safeStep()
   if not RT.alive then return true end
-  RT.lastTick = os.clock()
   local now = os.clock()
-  local dt = lastClock and math.max(0, math.min(0.2, now - lastClock)) or 0.016
+  RT.lastTick = now
+  local dt = lastClock and math.max(0, now - lastClock) or 0.016
+  if not menu.open and dt < UPDATE_INTERVAL then return false end
   lastClock = now
+  dt = math.min(0.2, dt)
   local ok, err = pcall(step, dt)
   if not ok then alert('step: ' .. tostring(err)) end
   return false

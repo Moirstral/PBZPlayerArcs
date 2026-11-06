@@ -239,8 +239,10 @@ local function childrenOf(panel)
     local okLen, len = pcall(function() return #slots end)
     if okLen and type(len) == 'number' then
       for i = 1, len do
-        local slot = unwrap(slots[i])
-        local child = valid(slot) and prop(slot, 'Content') or nil
+        -- 下标读取也要 pcall：这条是裸 TArray 访问，控件被回收时
+        -- UE4SS 会在越界检查里读到坏指针（crash dump 里就是这个签名）。
+        local okSlot, slot = pcall(function() return unwrap(slots[i]) end)
+        local child = okSlot and valid(slot) and prop(slot, 'Content') or nil
         if valid(child) then kids[#kids + 1] = child end
       end
     end
@@ -1414,6 +1416,17 @@ end
 
 function HudBars:destroy()
   self:release()
+end
+
+-- 换世界时调用：直接丢掉所有条目。走 release() 会把旧世界的控件再摸一遍
+-- （RemoveFromParent / 还原材质标量），那些对象这时候可能正在被销毁，
+-- 一碰就是野指针。旧世界既然没了，也就没有需要交还的条。
+function HudBars:forget()
+  self.entries = {}
+  self.lastCount, self.nextScan = nil, 0
+  self.snapshot, self.lastDebugMax = nil, nil
+  self.initialX, self.initialShow, self.overrideLogged = nil, nil, nil
+  self.loggedLen, self.lenLogAt = nil, nil
 end
 
 return HudBars

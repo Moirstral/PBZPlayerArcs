@@ -191,4 +191,13 @@ function Stats:read()
   }
 end
 
+-- 换世界（读档、过图）时调用：缓存的 PlayerController / Pawn / 属性集全部属于
+-- 旧世界，引擎会在换图之后把它们销毁。这里只丢 Lua 侧的引用，不碰任何 UObject，
+-- 所以可以在 LoadMap 的钩子里安全调用。
+function Stats:forget()
+  self._pc, self._pawn, self._set, self._names = nil, nil, nil, nil
+  self._hp, self._hpMax, self._qi, self._qiMax = nil, nil, nil, nil
+  self._ult, self._ultMax = nil, nil
+end
+
 return Stats

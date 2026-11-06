@@ -579,6 +579,17 @@ function Icons:destroy()
   self.dragging = nil
 end
 
+-- 换世界时调用：把「从游戏里拿到的」引用全部丢掉（它们属于旧世界），并让下一次
+-- update 立刻重新扫描。这里只改 Lua 字段，不调用任何 UMG 函数 —— 旧控件可能正在
+-- 被销毁，这时候去碰它就是踩野指针（实测就是换图后一两秒崩在 UE4SS 里）。
+function Icons:forget()
+  self.quickslot, self.weapon = nil, nil
+  self.bulletNum = nil
+  self.scanAt, self.readAt = 0, 0
+  self.shownValue = nil
+  cachedPC = nil
+end
+
 function Icons:scan()
   local function adopt(old, shortName, names, label)
     if valid(old) and hasAnyChild(old, names) then return old end
