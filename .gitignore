@@ -2,9 +2,10 @@
 tools/
 backup/
 
-# 本地开发记忆与工具
+# 本地开发记忆、工具与文档
 .workbuddy/
 .qoder/
+docs/
 
 # 打包产物
 release/
