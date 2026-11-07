@@ -41,6 +41,8 @@ local WHITE = '#FFFFFF'
 local MIN_BAR_LEN = 48       -- 比这更短就不算一条
 -- 读数控件的名字前缀：关掉原生条时要靠它把读数从「游戏画的那一层」里摘出来。
 local NUMBER_PREFIX = 'PBZArcs_HudNum'
+-- 两条读数固定就这两个键；每帧循环别再临时造表。
+local NUMBER_KEYS = { 'hp', 'qi' }
 -- 挂在弧形条上时数字与墨线之间的空隙。单位是弧形条自己的（跟着半径缩放），
 -- 不是屏幕像素。
 local ARC_GAP = 6
@@ -531,11 +533,17 @@ function HudBars:arcLayout()
   local radius = math.max(60, tonumber(self.S.Radius) or 150)
   local span = math.max(30, math.min(180, tonumber(self.S.ArcSpan) or 110))
   local thickness = math.max(2, tonumber(self.S.Thickness) or 7)
+  -- 只依赖这三个设置，改半径 / 弧度 / 粗细（菜单里改滑块）时自然失效。
+  -- 稳态每帧复用同一张表，省掉三角函数和一次表分配。
+  local sig = self.arcLayoutSig
+  if sig and sig[1] == radius and sig[2] == span and sig[3] == thickness then
+    return self.arcLayoutGeo
+  end
   local half = math.rad(span) / 2
   -- 弧的两端离竖直中轴的水平距离；一条左弧的 x 就落在 [0, R - chord] 之间，
   -- 右弧是它的镜像。
   local chord = radius * math.cos(half)
-  return {
+  local geo = {
     centre = radius,
     thickness = thickness,
     leftCX = (radius - chord) / 2,
@@ -545,6 +553,9 @@ function HudBars:arcLayout()
     -- 弧的最低点：两端都在水平中轴下方 sin(span/2) * R 处。
     bottom = radius + radius * math.sin(half),
   }
+  self.arcLayoutSig = { radius, span, thickness }
+  self.arcLayoutGeo = geo
+  return geo
 end
 
 -- 弧形条（Render）由 main 交进来。数字挂在它的 group 上，
@@ -610,7 +621,7 @@ function HudBars:ensureArcNumbers(tree, group)
   for key, number in pairs(list) do
     if not valid(number.widget) or number.group ~= group then list[key] = nil end
   end
-  for _, key in ipairs({ 'hp', 'qi' }) do
+  for _, key in ipairs(NUMBER_KEYS) do
     if list[key] == nil then
       local number = newArcText(tree, group, key)
       if number then
@@ -655,7 +666,7 @@ function HudBars:updateArcNumbers(snapshot)
   local centre = tostring(self.S.HudNumberStyle or 'side'):lower() == 'center'
   local font = centre and CENTER_FONT or NUM_FONT
   local hpLeft = self.S.HpOnLeft and true or false
-  for _, key in ipairs({ 'hp', 'qi' }) do
+  for _, key in ipairs(NUMBER_KEYS) do
     local number = list[key]
     local text = (key == 'hp') and hpText or qiText
     if number == nil then
@@ -937,7 +948,10 @@ function HudBars:applyEntry(entry, now)
   -- 每 0.5 秒复核一次就够，不能每帧重新遍历控件树。
   if self.S.HudNumbers or self.S.Debug then
     local geo = entry.geometry
-    if geo == nil or now - (entry.geometryAt or 0) >= SCAN_INTERVAL then
+    -- 量不到条图时也不能每帧重试：barGeometry 要遍历整棵子树、逐节点读
+    -- 类名 / 尺寸 / 笔刷，一次就是几十次反射读取。成功与失败都按同一个
+    -- 扫描间隔复核，控件重建时 scan() 会把这两个字段一起清掉。
+    if entry.geometryAt == nil or now - entry.geometryAt >= SCAN_INTERVAL then
       entry.geometryAt = now
       geo = barGeometry(self:indexOf(entry))
       entry.geometry = geo
@@ -1123,9 +1137,16 @@ end
 function HudBars:stripDrawnHeight(entry, key)
   entry.stripH = entry.stripH or {}
   local cached = entry.stripH[key]
-  if cached ~= nil then return cached end
+  -- false 是「量不到」的负缓存。这个版本里 ImageSize 常常读不出来，若把
+  -- 失败当成「下次再试」，就会每帧重扫一遍子树、每个节点都去问一次完整名
+  -- （实测一次约 37 次反射读取 × 2 个数字），成为稳态最贵的一帧路径。
+  -- 负缓存随 scan() 的 0.5 秒节奏重试，控件重建时也能重新量到。
+  if cached ~= nil then return cached or nil end
   local want = STRIP_BY_KEY[key]
-  if want == nil or not valid(entry.root) then return nil end
+  if want == nil or not valid(entry.root) then
+    entry.stripH[key] = false
+    return nil
+  end
   for _, item in ipairs(self:indexOf(entry)) do
     if objectName(item.node) == want then
       local height = imageHeight(item.node)
@@ -1135,6 +1156,7 @@ function HudBars:stripDrawnHeight(entry, key)
       end
     end
   end
+  entry.stripH[key] = false
   return nil
 end
 
@@ -1732,6 +1754,7 @@ function HudBars:forget()
   -- 弧形条上的读数也一起丢掉引用，但不去 RemoveFromParent：那些控件挂在
   -- 旧世界的树上，此刻可能正在被销毁。
   self.arcNumbers = nil
+  self.arcLayoutSig, self.arcLayoutGeo = nil, nil
   self.lastCount, self.nextScan = nil, 0
   self.snapshot, self.lastDebugMax = nil, nil
   self.initialX, self.initialShow, self.overrideLogged = nil, nil, nil
