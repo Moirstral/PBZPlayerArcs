@@ -824,21 +824,35 @@ function Menu:build()
       get = function() return self.S.MedicineHud end, set = function(v) self.S.MedicineHud = v end },
     { key = 'UltHud', idOn = 'btn.ultOn', idOff = 'btn.ultOff', tip = 'tip.ult',
       get = function() return self.S.UltHud end, set = function(v) self.S.UltHud = v end },
-    { key = 'PinHudBars', idOn = 'btn.pinBarsOn', idOff = 'btn.pinBarsOff', tip = 'tip.pinBars',
-      get = function() return self.S.PinHudBars end,
-      -- 只固定而不显示读数从来不是这个开关的本意，所以它会顺手把
-      -- 数字也打开；之后数字开关仍可单独设置。
-      set = function(v)
-        self.S.PinHudBars = v
-        if v then self.S.HudNumbers = true end
-        self:refreshAllButtons()
-      end },
   }
   for index, def in ipairs(toggles) do
     local button = self:buildButton(panel, tree, colX(index), buttonY,
       colW, buttonH, def.key, def.idOn)
     if button then self:wireToggle(button, def) end
   end
+  -- 第一行最后一格是原生条的三态下拉框：固定长度 / 动态长度 / 整条关闭。
+  -- 关闭只收起游戏画的那两条（含底图），「显示数字」的读数照旧显示。
+  self:buildDropdown(panel, tree, {
+    key = 'NativeBars',
+    x = colX(6), y = buttonY, w = colW, h = buttonH,
+    up = true,
+    tip = 'tip.nativeBars',
+    options = {
+      { value = 'pin', id = 'btn.nativePin' },
+      { value = 'dynamic', id = 'btn.nativeDynamic' },
+      { value = 'hide', id = 'btn.nativeOff' },
+    },
+    value = function() return tostring(self.S.NativeBars or 'pin'):lower() end,
+    set = function(value)
+      self.S.NativeBars = value
+      self:changed('NativeBars')
+    end,
+    text = function()
+      local mode = tostring(self.S.NativeBars or 'pin'):lower()
+      return self:t((mode == 'dynamic' and 'btn.nativeDynamic')
+        or (mode == 'hide' and 'btn.nativeOff') or 'btn.nativePin')
+    end,
+  })
 
   local row2 = buttonY + buttonH + rowGap
 

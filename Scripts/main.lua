@@ -302,6 +302,9 @@ end
 local menu = Menu.new(S, { log = log, alert = alert, onChange = onChange })
 local icons = Icons.new(S, rawLog)
 local hudBars = HudBars.new(S, rawLog)
+-- 选「关闭原生条」时读数要挂在弧形条上，所以把 Render 交给它。它只读
+-- group / tree 和每条弧的淡出值，不会反过来驱动弧线。
+hudBars:setArcs(render)
 
 -- 崩溃现场定位用：只在 Debug 打开时，按「子系统切换」打一行。真崩了以后
 -- 日志最后一行就是崩之前正在跑的子系统，比事后猜便宜得多。

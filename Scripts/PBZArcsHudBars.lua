@@ -3,6 +3,9 @@
 -- 进度条控件上的宽度参数，所以本模块把该参数改回蓝图出厂时的取值。
 -- 数字是独立的开关，可以位于条的上方 / 下方，
 -- 或画在条的内部。
+-- 选「关闭原生条」之后，游戏条连同它的布局都不再露面，数字留在原处就是
+-- 半空里孤立的一行字，所以这时数字改挂到 MOD 自己的弧形条上：贴在同一侧
+-- 那条弧的中段外侧，或者挂在各自弧的正下方。
 
 local Config = require('PBZArcsConfig')
 
@@ -22,6 +25,7 @@ local WARN_INTERVAL = 5
 local NUM_FONT = 13
 local NUM_CHAR_W = 10
 local NUM_MIN_W = 24
+local BOX_PAD = 6            -- 文本槽在字号上留的高度余量
 local ROW_OFFSET = 13        -- 像素，属于条自身的空间，从条中心到它的数字
 local ROW_DOWN = 7           -- 这一对数字位于控件中心下方，夹在两条之间
 -- 每个条的上边缘在控件中的位置，从控件中心量起。条内数字的居中方式
@@ -35,6 +39,11 @@ local CENTER_FONT = 8
 local OUTLINE_SIZE = 1
 local WHITE = '#FFFFFF'
 local MIN_BAR_LEN = 48       -- 比这更短就不算一条
+-- 读数控件的名字前缀：关掉原生条时要靠它把读数从「游戏画的那一层」里摘出来。
+local NUMBER_PREFIX = 'PBZArcs_HudNum'
+-- 挂在弧形条上时数字与墨线之间的空隙。单位是弧形条自己的（跟着半径缩放），
+-- 不是屏幕像素。
+local ARC_GAP = 6
 local WATCH_INTERVAL = 2     -- 进度条取值采样之间的秒数
 -- 进度条自身的宽度参数（BarX），单位是游戏的 UI 单位。新存档从这些长度
 -- 起步；只有在蓝图的取值读不到时才用它们。
@@ -54,6 +63,15 @@ local SHOW_UP_TOLERANCE = 0.002
 local Util = require('PBZArcsUtil')
 local valid, prop, unwrap, cls = Util.valid, Util.prop, Util.unwrap, Util.cls
 local VIS, Z = Util.VIS, Util.Z
+
+-- 原生条的三种状态（Config 的 NativeBars）：pin / dynamic / hide。
+-- 'hide' 也按固定长度处理：条虽然不画，读数的位置仍按固定后的长度算，
+-- 和开着固定时的观感一致。
+local function nativeMode(settings)
+  local mode = tostring(settings.NativeBars or 'pin'):lower()
+  if mode ~= 'dynamic' and mode ~= 'hide' then mode = 'pin' end
+  return mode
+end
 
 local function fullName(object)
   if not valid(object) then return '?' end
@@ -415,7 +433,7 @@ local function placeNumber(entry, localX, offsetY, boxW)
   entry.x, entry.y, entry.boxW = offsetX, offsetY, boxW
   if entry.canvas then
     pcall(function() entry.slot:SetPosition({ X = offsetX, Y = offsetY }) end)
-    pcall(function() entry.slot:SetSize({ X = boxW, Y = NUM_FONT + 6 }) end)
+    pcall(function() entry.slot:SetSize({ X = boxW, Y = (entry.font or NUM_FONT) + BOX_PAD }) end)
   else
     pcall(function() text:SetRenderTranslation({ X = offsetX, Y = offsetY }) end)
   end
@@ -439,6 +457,252 @@ local function showNumber(entry, text, colour)
   if entry.shown ~= true then
     entry.shown = true
     pcall(function() entry.widget:SetVisibility(VIS.SelfHitTestInvisible) end)
+  end
+end
+
+---------------------------------------------------------------------------------------------------
+-- 两个宿主（游戏条 / 弧形条）共用的文本与配色
+
+-- 数值没变时不重新格式化文本。
+function HudBars:numberTexts(snapshot)
+  local hp, hpMax = snapshot and snapshot.hp or nil, snapshot and snapshot.hpMax or nil
+  local qi, qiMax = snapshot and snapshot.qi or nil, snapshot and snapshot.qiMax or nil
+  local sig = self.numSig
+  if sig == nil or sig[1] ~= hp or sig[2] ~= hpMax
+    or sig[3] ~= qi or sig[4] ~= qiMax then
+    self.numSig = { hp, hpMax, qi, qiMax }
+    local hpH, hpM = numberText(hp), numberText(hpMax)
+    local qiQ, qiM = numberText(qi), numberText(qiMax)
+    self.numHpText = (hpH and hpM) and (hpH .. ' / ' .. hpM) or nil
+    self.numQiText = (qiQ and qiM) and (qiQ .. ' / ' .. qiM) or nil
+  end
+  return self.numHpText, self.numQiText
+end
+
+-- 条内的文字是白色的，与参考的数值 HUD 一致；在条外则保持弧线的颜色。
+-- 颜色跟随弧线设置，所以除非 HpColor / QiColor 真的在菜单里变了，
+-- 重新读取只是一次字符串比较。
+function HudBars:numberColours()
+  if self.centerColour == nil then self.centerColour = Config.hexToLinear(WHITE) end
+  if self.hpHexSrc ~= self.S.HpColor then
+    self.hpHexSrc, self.hpHex = self.S.HpColor, Config.normalizeHex(self.S.HpColor, '#FFFFFF')
+  end
+  if self.qiHexSrc ~= self.S.QiColor then
+    self.qiHexSrc, self.qiHex = self.S.QiColor, Config.normalizeHex(self.S.QiColor, '#FFFFFF')
+  end
+  return self.centerColour, self.hpHex, self.qiHex
+end
+
+-- 条内样式用自己的字号，所以切换样式必须重新测量文本；
+-- 清掉摆放结果就能让下一次更新把它放回去。
+-- 真正让 Slate 按新字号重建文本的是 SetFont ——只写 Font.Size 改的是
+-- 一份副本。描边也在字体结构体里，
+-- 所以同一次调用顺带把它带上。
+local function setNumberFont(number, size)
+  if number.font == size then return end
+  number.font = size
+  local ok = pcall(function()
+    local font = number.widget.Font
+    font.Size = size
+    local settings = font.OutlineSettings
+    if settings == nil then settings = {} end
+    settings.OutlineSize = OUTLINE_SIZE
+    settings.OutlineColor = { R = 0, G = 0, B = 0, A = 1 }
+    font.OutlineSettings = settings
+    number.widget:SetFont(font)
+  end)
+  if not ok then
+    pcall(function() number.widget.Font.Size = size end)
+  end
+  number.value = nil
+  number.x, number.y, number.boxW = nil, nil, nil
+end
+
+---------------------------------------------------------------------------------------------------
+-- 挂在弧形条上的数字（选「关闭原生条」时）
+--
+-- 数字直接挂进弧形条自己的 group 画布：group 的整体变换已经带着锚点跟随、
+-- UI 缩放和 HUD 淡出，所以这里只需要算「在弧的哪个位置」，不必再复制一遍
+-- 屏幕坐标。坐标空间是 2R 见方、圆心在 (R, R) 的那张画布。
+
+-- 弧形条的几何。用的都是弧线自己那份设置，与 Render 里算分段时同一套取值，
+-- 这样数字永远贴在实际画出来的弧上，不用去读控件。
+function HudBars:arcLayout()
+  local radius = math.max(60, tonumber(self.S.Radius) or 150)
+  local span = math.max(30, math.min(180, tonumber(self.S.ArcSpan) or 110))
+  local thickness = math.max(2, tonumber(self.S.Thickness) or 7)
+  local half = math.rad(span) / 2
+  -- 弧的两端离竖直中轴的水平距离；一条左弧的 x 就落在 [0, R - chord] 之间，
+  -- 右弧是它的镜像。
+  local chord = radius * math.cos(half)
+  return {
+    centre = radius,
+    thickness = thickness,
+    leftCX = (radius - chord) / 2,
+    rightCX = 2 * radius - (radius - chord) / 2,
+    leftOuter = 0,
+    rightOuter = 2 * radius,
+    -- 弧的最低点：两端都在水平中轴下方 sin(span/2) * R 处。
+    bottom = radius + radius * math.sin(half),
+  }
+end
+
+-- 弧形条（Render）由 main 交进来。数字挂在它的 group 上，
+-- 这样锚点、缩放、淡出都只有一份实现。
+function HudBars:setArcs(arcs)
+  self.arcs = arcs
+end
+
+function HudBars:arcHost()
+  local arcs = self.arcs
+  if arcs == nil then return nil, nil end
+  if not (valid(arcs.tree) and valid(arcs.group)) then return nil, nil end
+  return arcs.tree, arcs.group
+end
+
+-- 弧形条上的读数是一条 canvas 槽：位置和尺寸都是显式写的，
+-- 文本自己在槽里左对齐，居中由外面算出来。
+local function newArcText(tree, group, name)
+  seq = seq + 1
+  local created, text = pcall(function()
+    return StaticConstructObject(cls(CLASS.text), tree,
+      FName(NUMBER_PREFIX .. '_arc_' .. name .. '_' .. seq))
+  end)
+  if not created or not valid(text) then return nil end
+  pcall(function() text.Font.Size = NUM_FONT end)
+  pcall(function() text.Justification = 0 end)
+  pcall(function() text:SetShadowOffset({ X = 1, Y = 1 }) end)
+  pcall(function() text:SetShadowColorAndOpacity({ R = 0, G = 0, B = 0, A = 0.9 }) end)
+  pcall(function() text:SetVisibility(VIS.SelfHitTestInvisible) end)
+  local slot = nil
+  pcall(function() slot = group:AddChildToCanvas(text) end)
+  if not valid(slot) then
+    pcall(function() text:RemoveFromParent() end)
+    return nil
+  end
+  pcall(function()
+    slot:SetAnchors({ Minimum = { X = 0, Y = 0 }, Maximum = { X = 0, Y = 0 } })
+    slot:SetAlignment({ X = 0, Y = 0 })
+    slot:SetAutoSize(false)
+    slot:SetPosition({ X = 0, Y = 0 })
+    slot:SetSize({ X = NUM_MIN_W, Y = NUM_FONT + BOX_PAD })
+    -- 弧形条的分段画在 Z 0..2，读数要压在它们上面。
+    slot:SetZOrder(Z.HudNumberSlot)
+  end)
+  return { widget = text, slot = slot, canvas = true,
+           value = nil, x = nil, y = nil, boxW = nil, alpha = 1 }
+end
+
+function HudBars:dropArcNumbers()
+  local list = self.arcNumbers
+  if list == nil then return end
+  for _, number in pairs(list) do
+    pcall(function() number.widget:RemoveFromParent() end)
+  end
+  self.arcNumbers = nil
+end
+
+function HudBars:ensureArcNumbers(tree, group)
+  local list = self.arcNumbers or {}
+  self.arcNumbers = list
+  -- 弧形条重建（改半径 / 弧度 / 换世界）会换掉 group，挂在旧 group 上的
+  -- 控件跟着旧树一起作废，所以按 group 的身份判断要不要重造。
+  for key, number in pairs(list) do
+    if not valid(number.widget) or number.group ~= group then list[key] = nil end
+  end
+  for _, key in ipairs({ 'hp', 'qi' }) do
+    if list[key] == nil then
+      local number = newArcText(tree, group, key)
+      if number then
+        number.key, number.group = key, group
+        list[key] = number
+        self.log('hud bars: ' .. key .. ' number attached to the arc')
+      end
+    end
+  end
+  return list
+end
+
+-- 数字跟着自己那条弧一起亮暗。弧被撤下（只显示一条、满值淡出、显示模式
+-- 关掉）时如果还留着数字，就又变成半空里的一行字了，所以把弧的淡出值
+-- 直接当作数字的透明度。
+function HudBars:arcFade(key)
+  local arcs = self.arcs
+  local bar = nil
+  if arcs ~= nil then
+    bar = (key == 'hp') and arcs.hpBar or arcs.qiBar
+  end
+  if bar == nil then return 1 end
+  if bar.enabled == false then return 0 end
+  local fade = bar.fade
+  if type(fade) ~= 'number' then return 1 end
+  if fade < 0 then return 0 end
+  if fade > 1 then return 1 end
+  return fade
+end
+
+function HudBars:updateArcNumbers(snapshot)
+  local tree, group = self:arcHost()
+  if tree == nil then
+    -- 弧形条还没建好：宁可先不画，也不要把数字留在原生条的位置上悬空。
+    self:dropArcNumbers()
+    return
+  end
+  local list = self:ensureArcNumbers(tree, group)
+  local hpText, qiText = self:numberTexts(snapshot)
+  local centreColour, hpHex, qiHex = self:numberColours()
+  local geo = self:arcLayout()
+  local centre = tostring(self.S.HudNumberStyle or 'side'):lower() == 'center'
+  local font = centre and CENTER_FONT or NUM_FONT
+  local hpLeft = self.S.HpOnLeft and true or false
+  for _, key in ipairs({ 'hp', 'qi' }) do
+    local number = list[key]
+    local text = (key == 'hp') and hpText or qiText
+    if number == nil then
+      -- 造不出来就等下一次更新；弧形条可能还在建。
+    elseif text == nil or self:arcFade(key) <= 0.01 then
+      showNumber(number, nil)
+    else
+      if number.font ~= font then setNumberFont(number, font) end
+      if centre then
+        -- 条内样式是白字，与参考的数值 HUD 一致。
+        if number.tint ~= 'center' then
+          number.tint, number.colour, number.value = 'center', centreColour, nil
+        end
+      else
+        local hex = (key == 'hp') and hpHex or qiHex
+        if number.tint ~= hex then
+          number.tint, number.colour, number.value = hex, Config.hexToLinear(hex), nil
+        end
+      end
+      showNumber(number, text, number.colour)
+      local fade = self:arcFade(key)
+      if math.abs((number.alpha or 1) - fade) > 0.01 then
+        number.alpha = fade
+        pcall(function() number.widget:SetRenderOpacity(fade) end)
+      end
+      local measured = measuredSize(number.widget)
+      local boxW = (measured and measured > 0) and measured
+        or math.max(NUM_MIN_W, #text * (centre and font * 0.62 or NUM_CHAR_W))
+      local onLeft = (key == 'hp') and hpLeft or (not hpLeft)
+      local left, top
+      if centre then
+        -- 居中显示：贴在自己那条弧中段的外侧，横着不压墨线，纵向居中。
+        left = onLeft and (geo.leftOuter - ARC_GAP - boxW) or (geo.rightOuter + ARC_GAP)
+        top = geo.centre - font / 2
+      else
+        -- 上下显示：两条都挪到弧下面，各自在自己的弧正下方居中，同一行。
+        local cx = onLeft and geo.leftCX or geo.rightCX
+        left = cx - boxW / 2
+        top = geo.bottom + geo.thickness / 2 + ARC_GAP
+      end
+      placeNumber(number, left, top, boxW)
+      if number.arcLogged ~= (centre and 'center' or 'side') then
+        number.arcLogged = centre and 'center' or 'side'
+        self.log(string.format('hud bars: %s number on the arc (%s at %.0f,%.0f, %.0f wide)',
+          key, number.arcLogged, left, top, boxW))
+      end
+    end
   end
 end
 
@@ -486,6 +750,9 @@ function HudBars:hook()
 end
 
 function HudBars:release()
+  -- 挂在弧形条上的读数先撤掉：弧线还在的时候得自己动手，换世界时
+  -- forget() 才不会去碰这些正在销毁的控件。
+  self:dropArcNumbers()
   for _, entry in ipairs(self.entries) do
     -- 条的长度和它填充底板的比例都被改写过，所以要在恢复底图之前先还原它们；
     -- 否则游戏自带的 HUD 会一直停在钉住的状态，而且再次打开钉住时也没有
@@ -496,6 +763,8 @@ function HudBars:release()
     end
     -- 底图的长度是写进它们材质里的，所以必须还原。
     self:restoreBackdrops(entry)
+    -- 关掉「关闭原生条」或者停用 Mod 时，条必须重新看得见。
+    self:showVisuals(entry)
   end
   self.entries = {}
   self.lastCount = nil
@@ -511,6 +780,67 @@ function HudBars:dropNumbers(entry)
     pcall(function() number.widget:RemoveFromParent() end)
   end
   entry.numbers, entry.numbersTriedAt = {}, nil
+end
+
+-- 「关闭原生条」：只把游戏画这两条的那些子控件收起来。
+-- 用 Hidden 而不是 Collapsed —— Collapsed 不参与布局，条的宽度会变成 0，
+-- 读数就再也对不准条的跨度了（数字这时已经挪到弧形条上，但下次切回来
+-- 还要重新测量）。
+local HIDE_VIS = VIS.Hidden
+
+-- 子控件列表每 SCAN_INTERVAL 重建一次（和控件树索引同一个节奏），
+-- 每帧只读一遍可见性就把它们按回去：这个模块里凡是要遍历控件树的地方
+-- 都不能每帧做，否则掉帧。
+function HudBars:hideVisuals(entry, now)
+  if not valid(entry.root) then return end
+  if entry.hiddenKids == nil or now - (entry.hiddenAt or 0) >= SCAN_INTERVAL then
+    entry.hiddenAt = now
+    entry.hiddenKids = entry.hiddenKids or {}
+    for _, child in ipairs(childrenOf(entry.root)) do
+      -- 读数是我们自己放上去的，必须留着；其余都是游戏画条的那一层
+      -- （底图、特效、进度条），连背景一起收掉。关闭原生条时数字已经
+      -- 挪到弧形条上，这一条只是给切换的那一两帧兜底。
+      local name = fullName(child)
+      if not name:find(NUMBER_PREFIX, 1, true) then
+        local record = entry.hiddenKids[name]
+        if record == nil then
+          -- 记住游戏原本给它的可见性，切回固定 / 动态时原样还回去。
+          record = { was = numProp(child, 'Visibility') or VIS.Visible }
+          entry.hiddenKids[name] = record
+        end
+        record.widget = child
+      end
+    end
+    -- 一个能收的控件都没有，说明控件树和预期不一样；记一次，别每 5 秒刷屏。
+    if next(entry.hiddenKids) == nil and not entry.hideWarned then
+      entry.hideWarned = true
+      self:warn(now, 'no child widgets to hide on the bar widget')
+    end
+  end
+  for _, record in pairs(entry.hiddenKids) do
+    local child = record.widget
+    if valid(child) then
+      local have = numProp(child, 'Visibility')
+      if have ~= nil and have ~= HIDE_VIS then
+        pcall(function() child:SetVisibility(HIDE_VIS) end)
+      end
+    end
+  end
+end
+
+-- 只把「还停在 Hidden」的还回去：这中间游戏自己改过的（淡出动画、特效开关）
+-- 说明它有自己的主意，不要跟它抢。
+function HudBars:showVisuals(entry)
+  local kids = entry.hiddenKids
+  entry.hiddenKids = nil
+  entry.hiddenAt, entry.hideWarned = nil, nil
+  if kids == nil then return end
+  for _, record in pairs(kids) do
+    local widget = record.widget
+    if valid(widget) and numProp(widget, 'Visibility') == HIDE_VIS then
+      pcall(function() widget:SetVisibility(record.was or VIS.Visible) end)
+    end
+  end
 end
 
 function HudBars:scan()
@@ -529,10 +859,12 @@ function HudBars:scan()
         pcall(function() number.widget:RemoveFromParent() end)
       end
       entry.numbers, entry.numbersTriedAt = {}, nil
-      -- 被重建的控件会带来新的进度条和新的底图。
+      -- 被重建的控件会带来新的进度条和新的底图，上一次记下的显隐也作废。
       entry.progress = nil
       entry.backdropPins = nil
       entry.stripH = nil
+      entry.hiddenKids = nil
+      entry.hideWarned = nil
       entry.geometry, entry.geometryAt = nil, nil
     end
     entry.rootName = rootName
@@ -621,7 +953,10 @@ function HudBars:applyEntry(entry, now)
       if geo == nil then self:warn(now, 'no bar image found in the widget') end
     end
   end
-  if self.S.PinHudBars then
+  local mode = nativeMode(self.S)
+  if mode ~= 'dynamic' then
+    -- 'hide' 也照样钉长度：条虽然不画了，但上限变化时游戏仍会把它拉长，
+    -- 切回固定 / 动态时对不上的就是这些值。
     entry.pinned = true
     self:pinLength(entry, now)
     self:pinShowUp(entry, now)
@@ -634,10 +969,18 @@ function HudBars:applyEntry(entry, now)
     entry.pinned = false
     self.log('hud bars: pin off, bars handed back')
   end
-  if self.S.HudNumbers then
+  -- 关闭原生条时读数挂在弧形条上（条本身看不见了，字号也不按它的跨度算），
+  -- 这里只负责把游戏条上的那一对撤掉。
+  if self.S.HudNumbers and mode ~= 'hide' then
     self:ensureNumbers(entry, now)
   else
     self:dropNumbers(entry)
+  end
+  if mode == 'hide' then
+    self:hideVisuals(entry, now)
+  else
+    -- 没记着 hiddenKids 时直接返回，所以这里不用先判断上一次是不是 hide。
+    self:showVisuals(entry)
   end
 end
 
@@ -1240,57 +1583,11 @@ function HudBars:updateLittleBars(entry, snapshot)
   end
 end
 
--- 条内样式用自己的字号，所以切换样式必须重新测量文本；
--- 清掉摆放结果就能让下一次更新把它放回去。
--- 真正让 Slate 按新字号重建文本的是 SetFont ——只写 Font.Size 改的是
--- 一份副本。描边也在字体结构体里，
--- 所以同一次调用顺带把它带上。
-local function setNumberFont(number, size)
-  if number.font == size then return end
-  number.font = size
-  local ok = pcall(function()
-    local font = number.widget.Font
-    font.Size = size
-    local settings = font.OutlineSettings
-    if settings == nil then settings = {} end
-    settings.OutlineSize = OUTLINE_SIZE
-    settings.OutlineColor = { R = 0, G = 0, B = 0, A = 1 }
-    font.OutlineSettings = settings
-    number.widget:SetFont(font)
-  end)
-  if not ok then
-    pcall(function() number.widget.Font.Size = size end)
-  end
-  number.value = nil
-  number.x, number.y, number.boxW = nil, nil, nil
-end
-
 function HudBars:updateNumbers(snapshot)
   -- 数值没变时不重新格式化文本；位置仍每帧按条的跨度校正。
-  local hp, hpMax = snapshot and snapshot.hp or nil, snapshot and snapshot.hpMax or nil
-  local qi, qiMax = snapshot and snapshot.qi or nil, snapshot and snapshot.qiMax or nil
-  local sig = self.numSig
-  if sig == nil or sig[1] ~= hp or sig[2] ~= hpMax
-    or sig[3] ~= qi or sig[4] ~= qiMax then
-    self.numSig = { hp, hpMax, qi, qiMax }
-    local hpH, hpM = numberText(hp), numberText(hpMax)
-    local qiQ, qiM = numberText(qi), numberText(qiMax)
-    self.numHpText = (hpH and hpM) and (hpH .. ' / ' .. hpM) or nil
-    self.numQiText = (qiQ and qiM) and (qiQ .. ' / ' .. qiM) or nil
-  end
-  local hpText, qiText = self.numHpText, self.numQiText
-  local center = self.S.HudNumberStyle == 'center'
-  -- 条内的文字是白色的，与参考的数值 HUD 一致；在条的上方和下方
-  -- 则保持弧线的颜色。
-  if self.centerColour == nil then self.centerColour = Config.hexToLinear(WHITE) end
-  -- 颜色跟随弧线设置，所以除非 HpColor / QiColor 真的在菜单里变了，
-  -- 重新读取只是一次字符串比较。
-  if self.hpHexSrc ~= self.S.HpColor then
-    self.hpHexSrc, self.hpHex = self.S.HpColor, Config.normalizeHex(self.S.HpColor, '#FFFFFF')
-  end
-  if self.qiHexSrc ~= self.S.QiColor then
-    self.qiHexSrc, self.qiHex = self.S.QiColor, Config.normalizeHex(self.S.QiColor, '#FFFFFF')
-  end
+  local hpText, qiText = self:numberTexts(snapshot)
+  local center = tostring(self.S.HudNumberStyle or 'side'):lower() == 'center'
+  self:numberColours()
   for _, entry in ipairs(self.entries) do
     local geo = entry.geometry
     if geo and entry.numbers and #entry.numbers > 0 then
@@ -1373,8 +1670,9 @@ function HudBars:updateNumbers(snapshot)
 end
 
 function HudBars:update(dt, snapshot)
-  local pin, numbers = self.S.PinHudBars, self.S.HudNumbers
-  if not pin and not numbers then
+  local mode, numbers = nativeMode(self.S), self.S.HudNumbers
+  -- 动态长度 + 不显示数字 = 这个模块什么都不用做，条完全是游戏自己的。
+  if mode == 'dynamic' and not numbers then
     if #self.entries > 0 then self:release() end
     return
   end
@@ -1396,8 +1694,8 @@ function HudBars:update(dt, snapshot)
     local okEntry, entryErr = pcall(function() self:applyEntry(entry, now) end)
     if not okEntry then self:warn(now, 'applyEntry: ' .. tostring(entryErr)) end
     -- 只有在条被保持固定长度时小盖子才需要盯着；否则它就是游戏自己的
-    -- 控件，遵循游戏自己的规则。
-    if pin then pcall(function() self:updateLittleBars(entry, snapshot) end) end
+    -- 控件，遵循游戏自己的规则。整条关掉时它已经看不见了，不用管。
+    if mode == 'pin' then pcall(function() self:updateLittleBars(entry, snapshot) end) end
   end
   -- Debug 会在上限变化时（很少见：升级、换装备）记录条自身的长度，
   -- 以及它被钉住的目标长度。
@@ -1411,7 +1709,15 @@ function HudBars:update(dt, snapshot)
       end
     end
   end
-  if numbers then self:updateNumbers(snapshot) end
+  -- 数字只有一个宿主：关掉原生条时挂在弧形条上，其余时候挂在游戏条上。
+  -- 换宿主时必须把另一边的撤掉，否则会留下两套数字（弧形那边那套还会
+  -- 跟着旧 group 一起变成幽灵）。
+  if numbers and mode == 'hide' then
+    self:updateArcNumbers(snapshot)
+  else
+    self:dropArcNumbers()
+    if numbers then self:updateNumbers(snapshot) end
+  end
 end
 
 function HudBars:destroy()
@@ -1423,6 +1729,9 @@ end
 -- 一碰就是野指针。旧世界既然没了，也就没有需要交还的条。
 function HudBars:forget()
   self.entries = {}
+  -- 弧形条上的读数也一起丢掉引用，但不去 RemoveFromParent：那些控件挂在
+  -- 旧世界的树上，此刻可能正在被销毁。
+  self.arcNumbers = nil
   self.lastCount, self.nextScan = nil, 0
   self.snapshot, self.lastDebugMax = nil, nil
   self.initialX, self.initialShow, self.overrideLogged = nil, nil, nil

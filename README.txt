@@ -53,8 +53,9 @@ settings.ini 最上面是 Lang（菜单语言）和 MenuKey（菜单键），后
 按文件里的顺序排。别的语种想加自己的语言，复制一份改名为例如 fr.ini，改掉置顶的
 lang.name（下拉框显示的就是它），再在 languages.ini 里加一行 fr 即可，不用改 mod 代码。
 「全部显示 / 仅血条 / 仅杀气 / 关闭弧线」也是下拉框，在弹出的选项里选即可。
-开关按钮排成两行，每行六个：第一行是跟随人物、残影、笔锋、药瓶、绝招、固定原生条；
-第二行是显示时机、显示范围、血左杀右、显示数字、数值样式（上下显示 / 居中显示）、恢复默认。
+开关按钮排成两行，每行六个：第一行是跟随人物、残影、笔锋、药瓶、绝招、原生条
+（固定长度 / 动态长度 / 关闭）；第二行是显示时机、显示范围、血左杀右、显示数字、
+数值样式（上下显示 / 居中显示）、恢复默认。
 第一行里「药瓶显示 / 药瓶隐藏」「显示绝招 / 隐藏绝招」分别控制两组图标。
 鼠标停在滑条、开关或下拉框上时，旁边会浮出一句说明，告诉你这一项控制什么。
 
@@ -93,22 +94,37 @@ settings.ini 是例外：游戏内保存时始终写全量（完整的一份设�
 
 固定游戏原生血条 / 杀气条（可选）
 --------------------------------
-游戏自己左下角的血条和杀气条会随着上限变长，后期越拉越长。打开「固定原生条」后，
-这两条会回到游戏最初给它们设定的长度上，不再变长。
-默认打开（预设 1 就是打开状态），关着的时候原生条完全不受影响。
+游戏自己左下角的血条和杀气条会随着上限变长，后期越拉越长。菜单第一行最后一格是这一项
+的下拉框，三选一：
+- 原生条固定长度（默认）：两条回到游戏最初给它们设定的长度，不再变长。
+- 原生条动态长度：和游戏原本一样，随上限变长。
+- 关闭原生条：两条连背景一起隐藏，屏幕上不再画这两条；「显示数字」的读数照旧显示，
+  所以关掉以后仍然能靠数字看当前 / 上限。
 
-「显示数字」是单独的开关，不固定原生条也能显示，固定的条和游戏原本的条都可以用：
+关闭只收起游戏画的那一层（底图、条身、杀气闪光和特效），不影响本 mod 的弧形条、
+药瓶和绝招图标，也不改动任何游戏数值。想重新看见，把这一项切回上面两种即可。
+
+「显示数字」是单独的开关，三种状态都能用，固定长度的条、游戏原本的条、关掉的条都可以显示：
 - 上下显示：血量的数字在条的正上方，杀气的数字在条的正下方，颜色跟随 HpColor / QiColor。
 - 居中显示：数字用白字显示在每条条身的正中间，内容同样是「当前值 / 最大值」，
   字号固定得很小，保证在游戏那两条细条里也放得下。
-打开「固定原生条」时会同时打开「显示数字」，之后可以用「显示数字」单独关掉。
 数字的样式用第二行的数值样式下拉框切换。
 
-长度取自游戏最初给这两条设定的长度，和你什么时候打开开关无关；血条和杀气条各自保留
+选「关闭原生条」时，条已经不画了，数字如果还留在原地就是悬在半空的一行字，所以这时
+数字改挂到本 mod 的弧形条上，跟着弧线一起移动、缩放、淡出：
+- 上下显示：两个数字都挪到弧下面，各自在自己的那条弧正下方居中——血量的数字在血量弧
+  下方，杀气的数字在杀气弧下方，颜色照旧跟随弧线颜色。
+- 居中显示：每个数字贴在自己那条弧中段的外侧，纵向居中，墨线不会穿过文字。
+- 字号不变：上下显示 13，居中显示 8。
+- 某一侧弧被撤下时（显示范围只留一条、满值自动隐藏），它上面的数字跟着一起淡出。
+
+长度取自游戏最初给这两条设定的长度，和你什么时候选这一项无关；血条和杀气条各自保留
 自己的长度比例。也可以在 settings.ini 里把 HudBarWidth 写成一个具体数值，两条都会固定
 成这个长度（-1 表示各用各自的初值，日志会打印这两个值）。
 如果游戏里找不到这两条的长度控件，就不去改原生条，只在日志里说明。
-数字用的是游戏原来的字体和条上的同一层，所以过场、菜单里隐藏 HUD 时数字跟着一起消失。
+数字沿用游戏原来的字体，并且跟着 HUD 的淡出一起消失：挂在原生条上时跟游戏 HUD，
+挂在弧形条上时跟弧形条（两者用的是同一条淡出曲线），所以过场、菜单里隐藏 HUD 时
+数字也不会留在屏幕上。
 
 如果同时还装着别的移动或缩放原生血条的 mod，两边都会去改同一条控件，会互相覆盖，
 只能用其中一个。
@@ -175,9 +191,11 @@ IconScale            图标整体大小（0.5 ~ 3），默认 1.0；图标、数
                      一起放大，整排图标的底边位置不变
 UltChargeBar         true = 精纯杀气的充能进度直接填充在绝招图标上（从下往上）；false = 隐藏
 
-PinHudBars           true = 把游戏原生血条 / 杀气条固定在游戏最初设定的长度
+NativeBars           原生条怎么显示：pin = 固定在游戏最初设定的长度（默认）/
+                     dynamic = 随上限变长，和游戏原本一样 /
+                     hide = 整条隐藏（连背景一起），只保留 HudNumbers 的读数
 HudBarWidth          固定长度（以游戏 UI 自身的单位计，日志会打印两条各自的初值）；-1 = 各用各自的初值
-HudNumbers           true = 在原生条上显示「当前值 / 最大值」，不固定条也能打开
+HudNumbers           true = 在原生条上显示「当前值 / 最大值」，三种原生条状态都能用
 HudNumberStyle       side = 血条上方 / 杀气下方；center = 白字居中在每条条身上
 
 MenuKey              按键名，例如 F2、F8；改名后菜单提示会同步
@@ -330,9 +348,9 @@ languages.ini. No code changes needed.
 "All / HP only / Sha-Chi only / No arcs" is also a drop-down; pick an option from the
 pop-up list.
 The buttons are arranged in two rows of six: the first row is follow character, ghost
-trail, brush tip, potions, ultimate, pin HUD bars; the second row is display timing,
-display scope, HP left / Sha-Chi left, show numbers, number style (above / below or
-inside bars), reset to default.
+trail, brush tip, potions, ultimate, native bars (pinned / dynamic / hidden); the second
+row is display timing, display scope, HP left / Sha-Chi left, show numbers, number style
+(above / below or inside bars), reset to default.
 On the first row, "potions shown / potions hidden" and "ultimate shown / ultimate
 hidden" control the two icon groups respectively.
 Hovering a slider, toggle or drop-down floats a short note next to the pointer
@@ -387,26 +405,45 @@ The menu uses the system arrow cursor, which can move anywhere outside the panel
 Pinning the game's own HP / Sha-Chi bars (optional)
 ---------------------------------------------------
 The game's own HP and Sha-Chi bars in the lower-left corner stretch as the maximum
-values grow, getting longer and longer late in the game. Switching on "Pin HUD bars"
-puts both bars back at the length the game itself gives them. It is on by default
-(preset 1 has it on); while it is off the native bars are completely untouched.
+values grow, getting longer and longer late in the game. The last cell of the first row
+is a drop-down with three choices:
+- Pin HUD bars (default): both bars go back to the length the game itself gives them.
+- Native bars: keep the game's own behaviour and stretch with the maximum.
+- No native bars: both bars are hidden together with their backgrounds; the "Show
+  numbers" readout stays visible, so current / max is still readable.
 
-"Show numbers" is a separate switch and works without pinning, on both the pinned bars
-and the game's own:
+Hiding only covers the layer the game draws (backgrounds, bar bodies, the Sha-Chi glow
+and effects). It does not touch the mod's arcs, potion or ultimate icons, and no game
+value is changed. Pick either of the other two options to bring the bars back.
+
+"Show numbers" is a separate switch and works in all three states, on the pinned bars,
+the game's own bars, and the hidden ones:
 - Above / below: the HP number sits above its bar and the Sha-Chi number below it,
   coloured with HpColor / QiColor.
 - Inside bars: white text in the middle of each bar (not tied to the filled part), again
   "current / max". The font is deliberately small so it fits the game's thin bars.
-Turning on "Pin HUD bars" also turns on "Show numbers"; the numbers switch can then be
-turned off on its own. The number style is chosen by the drop-down in the second row.
+The number style is chosen by the drop-down in the second row.
+
+With "No native bars" the bars are gone, so numbers left in their old place would hang in
+mid-air. They move onto the mod's arcs instead, following the arc as it follows, scales and
+fades:
+- Above / below: both numbers move below the arcs, each centred under its own arc -- the
+  HP number under the HP arc, the Sha-Chi number under the Sha-Chi arc, still coloured by
+  the arc colours.
+- Inside bars: each number sits just outside the middle of its own arc, vertically centred,
+  so the ink stroke never crosses the text.
+- Font sizes are unchanged: 13 for above / below, 8 for inside bars.
+- When one arc is taken down (display scope set to one arc, or auto-hidden once full), its
+  number fades out with it.
 
 The length is the one the game gives the two bars when a save starts, so it does not
-depend on when you switch the toggle on; the HP and Sha-Chi bars keep their own
+depend on when you pick that option; the HP and Sha-Chi bars keep their own
 proportions. You can also put a value into HudBarWidth in settings.ini to use one length
 for both bars, in the same units the game's UI uses (-1 means each bar keeps its own
 initial length; the log prints both). If the game's length controls cannot be found, the
-native bars are left untouched and the log says so. The numbers live on the same widget
-layer as the bars, so they disappear with the HUD in cutscenes and menus.
+native bars are left untouched and the log says so. The numbers keep the game's font and
+fade out with the HUD: with the native bars they ride the game HUD's fade, on the arcs they
+ride the arcs' fade, so they never stay on screen in cutscenes and menus.
 
 If you also run another mod that moves or scales the native bars, both write to the
 same widget and overwrite each other; use only one of them.
@@ -487,12 +524,14 @@ IconScale            Overall icon size (0.5-3), default 1.0; icons, numbers and 
 UltChargeBar         true = the Sha-Chi Essence charge fills the ultimate icon
                      directly (bottom to top); false = hide
 
-PinHudBars           true = put the game's own HP / Sha-Chi bars back at the length the
-                     game gives them
+NativeBars           How the native bars show: pin = back at the length the game gives
+                     them (default) / dynamic = stretch with the maximum like the game
+                     does / hide = hidden entirely, backgrounds included, keeping only
+                     the HudNumbers readout
 HudBarWidth          Fixed length in the game UI's own units (the log prints both
                      initial values); -1 = each bar keeps its own initial length
-HudNumbers           true = show "current / max" on the native bars; works without the
-                     pin as well
+HudNumbers           true = show "current / max" on the native bars; works in all three
+                     states, including the hidden one
 HudNumberStyle       side = HP above / Sha-Chi below; center = white text centred in
                      each bar
 

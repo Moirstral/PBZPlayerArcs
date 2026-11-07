@@ -85,7 +85,9 @@ local FIELDS = {
   { 'IconScale', 1.0 },    -- 决定每个图标、其数字以及它们之间间距的大小
   { 'UltChargeBar', true },    -- 精纯杀气图标本体的充能填充
   -- 原生血条 / 杀气条（游戏自带的左下角条）
-  { 'PinHudBars', true },    -- 把两条固定为游戏最初设定的长度
+  -- pin = 固定为游戏最初设定的长度 / dynamic = 随上限变长（游戏原本的样子）
+  -- hide = 整条隐藏，连底图一起；只影响游戏画的条，本模块的读数照旧
+  { 'NativeBars', 'pin' },
   { 'HudBarWidth', -1 },    -- 固定宽度，单位为 slate 像素；-1 = 游戏给这条设定的长度
   { 'HudNumbers', true },    -- 在游戏的条上显示当前 / 最大值；是否固定都能用
   { 'HudNumberStyle', 'center' },    -- side = 在条的上方 / 下方，center = 在条内部
@@ -348,7 +350,11 @@ function Config.sanitize(S)
   S.ShowTip = parseBool(S.ShowTip)
   S.MedicineHud = parseBool(S.MedicineHud)
   S.UltHud = parseBool(S.UltHud)
-  S.PinHudBars = parseBool(S.PinHudBars)
+  S.NativeBars = tostring(S.NativeBars or DEFAULTS.NativeBars):lower()
+  -- 'dynamic' 与 'hide' 之外的一律当成默认的 pin。
+  if S.NativeBars ~= 'dynamic' and S.NativeBars ~= 'hide' then
+    S.NativeBars = DEFAULTS.NativeBars
+  end
   S.HudNumbers = parseBool(S.HudNumbers)
   S.HudNumberStyle = tostring(S.HudNumberStyle or DEFAULTS.HudNumberStyle):lower()
   -- 'side' 是 center 之外的另一个合法枚举值，不是默认值。
@@ -360,9 +366,13 @@ end
 -- 旧文件用了两个布尔值。首次写入新键时把它们转换过来。
 local LEGACY_VISIBILITY = { FollowHud = true, ShowInCombat = true }
 
+-- 原生条以前是布尔开关：PinHudBars = true 就是固定长度。读的时候换成
+-- 新的三态 NativeBars，老 settings.ini 和老预设都不用手改。
+local LEGACY_NATIVE_BARS_KEY = 'PinHudBars'
+
 -- 已不存在的功能。下次写入文件时这些行会被丢弃，
 -- 这样旧的 settings.ini 或预设不会一直保留它们的痕迹。
-local RETIRED_KEYS = { Enabled = true, ToggleKey = true }
+local RETIRED_KEYS = { Enabled = true, ToggleKey = true, PinHudBars = true }
 
 -- settings.ini 与预设文件共用：读取已知的键，并把每个值
 -- 转换成其默认值所属的类型。文件不存在时返回 nil。
@@ -375,6 +385,8 @@ local function readValues(path)
     if key and value ~= '' then
       if LEGACY_VISIBILITY[key] then
         legacy[key] = parseBool(value)
+      elseif key == LEGACY_NATIVE_BARS_KEY then
+        legacy.NativeBars = parseBool(value) and 'pin' or 'dynamic'
       elseif DEFAULTS[key] ~= nil then
         local default = DEFAULTS[key]
         if type(default) == 'boolean' then
@@ -388,6 +400,10 @@ local function readValues(path)
     end
   end
   f:close()
+  -- 文件里同时写了新键时以新键为准，旧布尔值只是迁移用的。
+  if legacy.NativeBars ~= nil and values.NativeBars == nil then
+    values.NativeBars = legacy.NativeBars
+  end
   return values, legacy
 end
 
@@ -428,7 +444,7 @@ function Config.load()
     for key, value in pairs(values) do S[key] = value end
     -- 在数字有独立开关之前，它们是随固定一起开启的，因此
     -- 只打开固定、没提到数字的文件仍然会显示数字。
-    if values.HudNumbers == nil and S.PinHudBars then S.HudNumbers = true end
+    if values.HudNumbers == nil and S.NativeBars ~= 'dynamic' then S.HudNumbers = true end
     if values.Visibility == nil then
       if legacy.ShowInCombat then S.Visibility = 'dynamic'
       elseif legacy.FollowHud then S.Visibility = 'hud'
