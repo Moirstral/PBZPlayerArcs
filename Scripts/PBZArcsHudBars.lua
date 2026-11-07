@@ -1140,7 +1140,8 @@ function HudBars:stripDrawnHeight(entry, key)
   -- false 是「量不到」的负缓存。这个版本里 ImageSize 常常读不出来，若把
   -- 失败当成「下次再试」，就会每帧重扫一遍子树、每个节点都去问一次完整名
   -- （实测一次约 37 次反射读取 × 2 个数字），成为稳态最贵的一帧路径。
-  -- 负缓存随 scan() 的 0.5 秒节奏重试，控件重建时也能重新量到。
+  -- 负缓存与正缓存同寿命：只在 scan() 判定控件被重建、清掉 entry.stripH 时
+  -- 才重新量一次，稳态不重试。
   if cached ~= nil then return cached or nil end
   local want = STRIP_BY_KEY[key]
   if want == nil or not valid(entry.root) then
