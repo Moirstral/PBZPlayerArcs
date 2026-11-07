@@ -265,7 +265,7 @@ Debug                true 时每 5 秒往日志写一行状态，排查问题用
 排查
 ----
 - 没有任何弧线：先确认 UE4SS 本身已注入；再看
-  Scripts\PBZArcs.log 里是否出现 “v0.3.0 loaded”。
+  Scripts\PBZArcs.log 里是否出现 “v0.4.0 loaded”。
 - 有日志但没有弧线：确认已读取存档并进入可操作状态。
 - 想反馈问题：把 Debug 改成 true，重启游戏，复现后提供
   Scripts\PBZArcs.log。
@@ -628,7 +628,7 @@ Known limitations
 Troubleshooting
 ---------------
 - No bars at all: first check that UE4SS itself is injected, then whether
-  "v0.3.0 loaded" appears in Scripts\PBZArcs.log.
+  "v0.4.0 loaded" appears in Scripts\PBZArcs.log.
 - A log exists but there are no bars: make sure you have loaded a save and are in
   control of the character.
 - To report a problem: set Debug to true, restart the game, reproduce the issue and

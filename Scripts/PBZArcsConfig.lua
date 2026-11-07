@@ -5,7 +5,7 @@ local src = debug.getinfo(1, 'S').source:gsub('^@', ''):gsub('\\', '/')
 Config.DIR = src:match('^(.*)/[^/]+$') or '.'
 Config.INI = Config.DIR .. '/settings.ini'
 Config.LOG = Config.DIR .. '/PBZArcs.log'
-Config.VERSION = '0.3.0'
+Config.VERSION = '0.4.0'
 
 -- 预设存放在 Scripts/preset/ 文件夹里，每个预设一个差异文件：
 -- preset1.ini、preset2.ini……只写与默认值不同的键，没写的键一律取
